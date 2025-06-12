@@ -7,7 +7,12 @@ authors = [
     { name = "F3445038 Francisco Manoel Da Silva Filho", email = "francisco.filho@bb.com.br" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "gitpython>=3.1.44",
+    "google-genai>=1.20.0",
+    "pydantic>=2.11.5",
+    "python-dotenv>=1.1.0",
+]
 
 [project.scripts]
 taskflow = "taskflow:main"
