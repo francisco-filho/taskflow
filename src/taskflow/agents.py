@@ -30,7 +30,7 @@ class Agent(ABC):
         print(f"Agent '{self.name}' initialized with {len(self.available_tools)} available tools.")
 
     @abstractmethod
-    def run(self, **kwargs) -> Any:
+    def run(self, prompt: str, **kwargs) -> Any:
         """
         Abstract method to run the agent's specific logic.
         Each concrete agent must implement this.
@@ -67,6 +67,30 @@ class Agent(ABC):
         """
         return []
 
+    def _extract_project_dir(self, prompt: str) -> str:
+        """
+        Helper method to extract project directory from prompt.
+        This can be overridden by subclasses for different extraction logic.
+        """
+        project_dir_match = prompt.split("project '")
+        if len(project_dir_match) > 1:
+            return project_dir_match[1].split("'")[0]
+        
+        # Alternative patterns to match
+        if "project directory:" in prompt.lower():
+            parts = prompt.lower().split("project directory:")
+            if len(parts) > 1:
+                return parts[1].strip().split()[0]
+        
+        if "in " in prompt and ("/" in prompt or "\\" in prompt):
+            # Try to find path-like strings
+            words = prompt.split()
+            for word in words:
+                if "/" in word or "\\" in word:
+                    return word.strip(".,!?")
+        
+        return ""
+
 class CommitMessage(BaseModel):
     message: str
     details: list[str]
@@ -83,33 +107,48 @@ class Commiter(Agent):
         """Returns the tool schemas available to the commiter agent."""
         return [DIFF_TOOL_SCHEMA]
 
-    def run(self, project_dir: str) -> Dict[str, Any]:
+    def run(self, prompt: str, **kwargs) -> Dict[str, Any]:
         """
         Generates a commit message using function calling.
 
         Parameters:
-            project_dir: The directory of the project to generate a diff from.
+            prompt: The user prompt containing the request and project information.
+            **kwargs: Additional keyword arguments (for compatibility).
 
         Returns:
             A dictionary containing the generated commit message and details,
             or an error message if the process fails.
         """
-        print(f"Commuter agent running for project: {project_dir}")
+        print(f"Commiter agent running with prompt: {prompt[:100]}...")
 
-        full_prompt = f"Generate a commit message for the staged changes in the project directory: {project_dir}. First, get the diff of the staged changes, then create a commit message based on the diff."
+        # Extract project directory from prompt
+        project_dir = self._extract_project_dir(prompt)
+        if not project_dir:
+            return {"message": "Error: Could not extract project directory from prompt", "details": ["Please specify the project directory in your prompt"]}
+
+        # Create a focused prompt for getting the diff
+        diff_prompt = f"Get the diff of staged changes for the project directory: {project_dir}"
 
         try:
-            # First call with function calling enabled
+            # First call with function calling enabled to get the diff
             tools = self._get_tool_schemas()
-            resp = self.model.chat(prompt=full_prompt, system_prompt=self.system_prompt, tools=tools)
+            resp = self.model.chat(prompt=diff_prompt, system_prompt=self.system_prompt, tools=tools)
 
             # Check if the model wants to call a function
             if resp.candidates[0].content.parts and hasattr(resp.candidates[0].content.parts[0], 'function_call'):
                 function_call = resp.candidates[0].content.parts[0].function_call
                 function_result = self._execute_function_call(function_call)
 
-                # Now ask for the commit message with the diff result
-                commit_prompt = f"Based on the following git diff, generate a commit message in the specified JSON format:\n\n```diff\n{function_result}\n```"
+                # Now ask for the commit message with the diff result and original prompt context
+                commit_prompt = f"""Based on the user request: "{prompt}"
+
+And the following git diff:
+
+```diff
+{function_result}
+```
+
+Generate a commit message in the specified JSON format with a concise message and detailed bullet points."""
 
                 # Second call to get the actual commit message
                 commit_resp = self.model.chat(prompt=commit_prompt, system_prompt=self.system_prompt, output=CommitMessage)
@@ -145,43 +184,62 @@ class Evaluator(Agent):
         """Returns the tool schemas available to the evaluator agent."""
         return [DIFF_TOOL_SCHEMA]
 
-    def run(self, commit_message: Dict[str, Any], project_dir: str) -> str:
+    def run(self, prompt: str, commit_message: Optional[Dict[str, Any]] = None, **kwargs) -> str:
         """
         Evaluates a given commit message against project changes using function calling.
 
         Parameters:
-            commit_message: The commit message (as a dictionary) to evaluate.
-            project_dir: The directory of the project to generate a diff from.
+            prompt: The user prompt containing the request and project information.
+            commit_message: The commit message (as a dictionary) to evaluate. If not provided, 
+                          it will be extracted from the prompt.
+            **kwargs: Additional keyword arguments (for compatibility).
 
         Returns:
             A string indicating if the commit message is accepted or rejected with a reason.
         """
-        print(f"Evaluator agent running for commit message: {commit_message.get('message', 'N/A')}")
+        print(f"Evaluator agent running with prompt: {prompt[:100]}...")
+
+        # Extract project directory from prompt
+        project_dir = self._extract_project_dir(prompt)
+        if not project_dir:
+            return "Error: Could not extract project directory from prompt. Please specify the project directory."
+
+        # If commit_message is not provided as a parameter, try to extract it from prompt
+        if commit_message is None:
+            return "Error: No commit message provided for evaluation."
 
         message_str = f"Message: {commit_message.get('message', '')}\nDetails:\n" + \
                       "\n".join([f"- {d}" for d in commit_message.get('details', [])])
 
-        full_prompt = f"Evaluate the quality of this commit message by first getting the diff of staged changes from project directory {project_dir}, then comparing it with the commit message:\n\nCommit Message:\n```\n{message_str}\n```"
+        # Create a focused prompt for getting the diff
+        diff_prompt = f"Get the diff of staged changes for the project directory: {project_dir}"
 
         try:
-            # First call with function calling enabled
+            # First call with function calling enabled to get the diff
             tools = self._get_tool_schemas()
-            resp = self.model.chat(prompt=full_prompt, system_prompt=self.system_prompt, tools=tools)
+            resp = self.model.chat(prompt=diff_prompt, system_prompt=self.system_prompt, tools=tools)
 
             # Check if the model wants to call a function
             if resp.candidates[0].content.parts and hasattr(resp.candidates[0].content.parts[0], 'function_call'):
                 function_call = resp.candidates[0].content.parts[0].function_call
                 function_result = self._execute_function_call(function_call)
 
-                # Now ask for the evaluation with the diff result
-                eval_prompt = (
-                    f"Given the following commit message and git diff, evaluate the quality of the commit message.\n"
-                    f"Commit Message:\n```\n{message_str}\n```\n\n"
-                    f"Git Diff:\n```diff\n{function_result}\n```\n\n"
-                    f"If your evaluation is positive, respond with 'Commit message accepted'. "
-                    f"If the commit message has any problems, respond with 'Bad commit message', "
-                    f"two new lines, and the motive."
-                )
+                # Now ask for the evaluation with the diff result and original context
+                eval_prompt = f"""User request: "{prompt}"
+
+Commit Message to evaluate:
+```
+{message_str}
+```
+
+Git Diff:
+```diff
+{function_result}
+```
+
+Evaluate the quality of the commit message against the changes shown in the diff.
+If your evaluation is positive, respond with 'Commit message accepted'.
+If the commit message has any problems, respond with 'Bad commit message', two new lines, and the reason."""
 
                 # Second call to get the actual evaluation
                 eval_resp = self.model.chat(prompt=eval_prompt, system_prompt=self.system_prompt)
@@ -205,32 +263,46 @@ class Reviewer(Agent):
         """Returns the tool schemas available to the reviewer agent."""
         return [DIFF_TOOL_SCHEMA]
 
-    def run(self, project_dir: str) -> str:
+    def run(self, prompt: str, **kwargs) -> str:
         """
         Generates a review of project changes using function calling.
 
         Parameters:
-            project_dir: The directory of the project to generate a diff from.
+            prompt: The user prompt containing the request and project information.
+            **kwargs: Additional keyword arguments (for compatibility).
 
         Returns:
             A string representing the review, or an error message.
         """
-        print(f"Reviewer agent running for project: {project_dir}")
+        print(f"Reviewer agent running with prompt: {prompt[:100]}...")
 
-        full_prompt = f"Generate a concise review of the staged changes in the project directory: {project_dir}. First, get the diff of the staged changes, then provide a review based on the diff."
+        # Extract project directory from prompt
+        project_dir = self._extract_project_dir(prompt)
+        if not project_dir:
+            return "Error: Could not extract project directory from prompt. Please specify the project directory."
+
+        # Create a focused prompt for getting the diff
+        diff_prompt = f"Get the diff of staged changes for the project directory: {project_dir}"
 
         try:
-            # First call with function calling enabled
+            # First call with function calling enabled to get the diff
             tools = self._get_tool_schemas()
-            resp = self.model.chat(prompt=full_prompt, system_prompt=self.system_prompt, tools=tools)
+            resp = self.model.chat(prompt=diff_prompt, system_prompt=self.system_prompt, tools=tools)
 
             # Check if the model wants to call a function
             if resp.candidates[0].content.parts and hasattr(resp.candidates[0].content.parts[0], 'function_call'):
                 function_call = resp.candidates[0].content.parts[0].function_call
                 function_result = self._execute_function_call(function_call)
 
-                # Now ask for the review with the diff result
-                review_prompt = f"Given the following git diff, generate a concise review of the changes:\n\n```diff\n{function_result}\n```"
+                # Now ask for the review with the diff result and original context
+                review_prompt = f"""User request: "{prompt}"
+
+Git diff:
+```diff
+{function_result}
+```
+
+Generate a concise review of the changes based on the user's request and the diff shown above."""
 
                 # Second call to get the actual review
                 review_resp = self.model.chat(prompt=review_prompt, system_prompt=self.system_prompt)
