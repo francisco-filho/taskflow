@@ -121,12 +121,10 @@ class Commiter(Agent):
         """
         print(f"Commiter agent running with prompt: {prompt[:100]}...")
 
-        # Extract project directory from prompt
         project_dir = self._extract_project_dir(prompt)
         if not project_dir:
             return {"message": "Error: Could not extract project directory from prompt", "details": ["Please specify the project directory in your prompt"]}
 
-        # Create a focused prompt for getting the diff
         diff_prompt = f"Get the diff of staged changes for the project directory: {project_dir}"
 
         try:
@@ -165,7 +163,7 @@ Generate a commit message in the specified JSON format with a concise message an
                     print(f"Warning: LLM response for Commiter was not valid JSON. Raw: {message_content}")
                     return {"message": "Invalid JSON response from LLM", "details": [message_content]}
             else:
-                # If no function call, treat as direct response
+                # Direct response
                 message_content = resp.candidates[0].content.parts[0].text
                 return {"message": "No function call made", "details": [message_content]}
 
@@ -199,12 +197,10 @@ class Evaluator(Agent):
         """
         print(f"Evaluator agent running with prompt: {prompt[:100]}...")
 
-        # Extract project directory from prompt
         project_dir = self._extract_project_dir(prompt)
         if not project_dir:
             return "Error: Could not extract project directory from prompt. Please specify the project directory."
 
-        # If commit_message is not provided as a parameter, try to extract it from prompt
         if commit_message is None:
             return "Error: No commit message provided for evaluation."
 

@@ -3,7 +3,7 @@ from typing import Optional, List
 
 from pydantic import BaseModel, Field
 
-from taskflow.agents import Agent, Commiter, Reviewer, Evaluator
+from taskflow.agents import Agent, Commiter
 from taskflow.memory import Memory
 from taskflow.llm import LLMClient
 from taskflow.tools import DIFF_TOOL_SCHEMA
@@ -183,7 +183,7 @@ class TaskFlow:
                         print("Invalid input. Assuming 'no' and retrying.")
                         feedback_history.append(f"User rejected with invalid input (attempt {attempt}). Please be more precise.")
                         self.memory.append("system", "Invalid user input, assuming rejection. Retrying.")
-                else: # No evaluator, and no approval needed
+                else:
                     print(f"Task completed: Agent '{selected_agent.name}' finished and no evaluation/approval needed.")
                     self.memory.append("system", "Task completed: No evaluation/approval needed.")
                     return

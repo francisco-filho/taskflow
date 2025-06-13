@@ -13,21 +13,12 @@ def diff_tool(project_dir: str, only_staged: bool = True) -> str:
         directory is not a git repository.
     """
     try:
-        # Initialize a Git repository object
         repo = git.Repo(project_dir)
 
-        # Check if there are any changes in the repository
         if repo.is_dirty() or repo.untracked_files:
             if only_staged:
-                # Get the diff of staged files
-                # This shows changes in the index (staged changes) compared to HEAD
                 diff_output = repo.git.diff('--cached')
-                print("-"*50)
-                print(diff_output)
-                print("-"*50)
             else:
-                # Get the diff of all changes (staged and unstaged)
-                # This shows changes in the working directory compared to HEAD
                 diff_output = repo.git.diff()
             return diff_output
         else:

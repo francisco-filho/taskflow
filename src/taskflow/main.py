@@ -1,6 +1,5 @@
 import os
 
-import git
 from dotenv import load_dotenv
 
 from taskflow.llm import GeminiClient

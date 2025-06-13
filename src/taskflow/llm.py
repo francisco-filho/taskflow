@@ -28,7 +28,6 @@ class GeminiClient(LLMClient):
         Parameters:
             model_name: The name of the Gemini model to use (e.g., "gemini-2.0-flash").
         """
-        GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
         self.model_name = model_name
         self.model = genai.Client()
         print(f"GeminiClient initialized with model: {model_name}")
