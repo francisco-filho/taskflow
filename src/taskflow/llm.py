@@ -1,15 +1,24 @@
-import os
 import json
 from typing import Optional, List, Dict, Any
 from abc import ABC, abstractmethod
 
 from pydantic import BaseModel
 from google import genai
-from google.genai import types
 import ollama
 
 from taskflow.util import logger
 
+def get_client(model: str = ""):
+    """Get a client implementation based on the model name."""
+
+    if model == "default":
+        return OllamaClient()
+    elif model in ["deepseek-r1:8b", "qwen2.5-coder:14b"]:
+        return OllamaClient(model_name=model)
+    elif model.startswith("gemini"):
+        return GeminiClient(model)
+    else:
+        return OllamaClient()
 
 class FunctionCall(BaseModel):
     name: str

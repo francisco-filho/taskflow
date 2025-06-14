@@ -2,14 +2,12 @@ import os
 
 from dotenv import load_dotenv
 
-from taskflow.llm import GeminiClient, OllamaClient
+from taskflow.llm import get_client
 from taskflow.flow import Task, TaskFlow
 from taskflow.agents import Commiter, Evaluator, Reviewer
 from taskflow.tools import diff_tool
 from taskflow.mock import create_temp_git_repo
 
-# TODO: add support for ollama
-# TODO: get_client for get other client
 # TODO: improve the memory, how to reproduce after a failure?
 # TODO: extract the prompts from the code
 # TODO: basic cli for set the project dir
@@ -21,7 +19,7 @@ if __name__ == "__main__":
     print("Initializing LegionAI system...")
     DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-2.5-flash-preview-05-20")
     #gemini_client = OllamaClient(model_name=DEFAULT_MODEL)
-    gemini_client = OllamaClient()
+    gemini_client = get_client()
 
     project_dir = os.path.abspath(os.path.join(os.getcwd(), "tmp_test_project"))
     create_temp_git_repo(project_dir)
@@ -80,7 +78,7 @@ You MUST use the `diff_tool` to get the staged changes in the project.
     flow.add(evaluator_agent)
     flow.add(reviewer_agent)
 
-    flow.run(task, max_attempts=3)
+    flow.run(review_task, max_attempts=3)
 
     print("\n--- Task execution finished. Memory content: ---")
     for interaction in flow.memory.get_history():
