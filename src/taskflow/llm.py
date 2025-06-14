@@ -1,10 +1,21 @@
 import os
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from abc import ABC, abstractmethod
+
+from pydantic import BaseModel
 from google import genai
 from google.genai import types
 
 from taskflow.util import logger
+
+
+class FunctionCall(BaseModel):
+    name: str
+    args: Dict[str, Any]
+
+class ChatResponse(BaseModel):
+    content: str
+    function_call: FunctionCall
 
 class LLMClient(ABC):
     """

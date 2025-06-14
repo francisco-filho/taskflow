@@ -2,16 +2,7 @@ import os
 
 import git
 
-def create_temp_git_repo(project_dir):
-    # Define a valid project directory for testing.
-    # This directory should ideally be a git repository with some staged changes for diff_tool to work.
-    # For example:
-    # 1. Create a directory: `mkdir /tmp/my_test_project`
-    # 2. Navigate into it: `cd /tmp/my_test_project`
-    # 3. Initialize git: `git init`
-    # 4. Create a file: `echo "Hello World" > test.txt`
-    # 5. Add to stage: `git add test.txt`
-    # You will then see the diff.
+def create_temp_git_repo(project_dir: str):
 
     # Create the temporary project directory if it doesn't exist
     if not os.path.exists(project_dir):
