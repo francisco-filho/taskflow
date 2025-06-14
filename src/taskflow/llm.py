@@ -1,10 +1,12 @@
 import os
+import json
 from typing import Optional, List, Dict, Any
 from abc import ABC, abstractmethod
 
 from pydantic import BaseModel
 from google import genai
 from google.genai import types
+import ollama
 
 from taskflow.util import logger
 
@@ -15,14 +17,14 @@ class FunctionCall(BaseModel):
 
 class ChatResponse(BaseModel):
     content: str
-    function_call: FunctionCall
+    function_call: Optional[FunctionCall] = None
 
 class LLMClient(ABC):
     """
     Abstract base class for LLM clients.
     """
     @abstractmethod
-    def chat(self, prompt: str, system_prompt: str = "", output=None, tools: Optional[List[Dict]] = None) -> types.GenerateContentResponse:
+    def chat(self, prompt: str, system_prompt: str = "", output=None, tools: Optional[List[Dict]] = None) -> ChatResponse:
         """
         Sends a chat prompt to the LLM and returns the response.
         """
@@ -43,7 +45,7 @@ class GeminiClient(LLMClient):
         self.model = genai.Client()
         print(f"GeminiClient initialized with model: {model_name}")
 
-    def chat(self, prompt: str, system_prompt: str = "", output=None, tools: Optional[List[Dict]] = None) -> types.GenerateContentResponse:
+    def chat(self, prompt: str, system_prompt: str = "", output=None, tools: Optional[List[Dict]] = None) -> ChatResponse:
         """
         Sends a chat prompt to the Gemini model.
 
@@ -54,7 +56,7 @@ class GeminiClient(LLMClient):
             tools: Optional list of tool schemas for function calling.
 
         Returns:
-            A GenerateContentResponse object from the Gemini API.
+            A ChatResponse object containing the content and optional function call.
         """
         contents = []
         if system_prompt:
@@ -76,13 +78,141 @@ class GeminiClient(LLMClient):
 
             logger.debug(f"--- llm call ---\n{contents}")
             response = self.model.models.generate_content(contents=contents, model=self.model_name, config=config)
-            return response
+            
+            # Extract content and function call from the Gemini response
+            content = ""
+            function_call = None
+            
+            if response.candidates and len(response.candidates) > 0:
+                candidate = response.candidates[0]
+                if candidate.content and candidate.content.parts:
+                    for part in candidate.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            content += part.text
+                        elif hasattr(part, 'function_call') and part.function_call:
+                            # Extract function call information
+                            function_call = FunctionCall(
+                                name=part.function_call.name,
+                                args=dict(part.function_call.args) if part.function_call.args else {}
+                            )
+            
+            return ChatResponse(content=content, function_call=function_call)
+            
         except Exception as e:
             print(f"Error during Gemini chat: {e}")
-            # Create a mock response for error handling to avoid breaking downstream logic
-            mock_response = types.GenerateContentResponse()
-            mock_response._chunks = [types.GenerateContentResponse.Candidate(
-                content=types.Content(parts=[types.Part(text=f"Error: {e}")]),
-                finish_reason=types.HarmCategory.HARM_CATEGORY_UNSPECIFIED
-            )]
-            return mock_response
+            # Return error as content in ChatResponse
+            return ChatResponse(content=f"Error: {e}", function_call=None)
+
+
+class OllamaClient(LLMClient):
+    """
+    Implementation of LLMClient for Ollama models.
+    """
+    def __init__(self, model_name: str = "qwen2.5-coder:14b", host: str = "http://localhost:11434"):
+        """
+        Initializes the Ollama client.
+
+        Parameters:
+            model_name: The name of the Ollama model to use (e.g., "llama3.1", "mistral", "codellama").
+            host: The Ollama server host URL.
+        """
+        self.model_name = model_name
+        self.host = host
+        self.client = ollama.Client(host=host)
+        print(f"OllamaClient initialized with model: {model_name} at {host}")
+
+    def chat(self, prompt: str, system_prompt: str = "", output=None, tools: Optional[List[Dict]] = None) -> ChatResponse:
+        """
+        Sends a chat prompt to the Ollama model.
+
+        Parameters:
+            prompt: The user's prompt.
+            system_prompt: An optional system-level instruction for the model.
+            output: Optional output schema for structured responses.
+            tools: Optional list of tool schemas for function calling.
+
+        Returns:
+            A ChatResponse object containing the content and optional function call.
+        """
+        messages = []
+        
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        
+        messages.append({"role": "user", "content": prompt})
+
+        try:
+            options = {}
+            
+            # Handle structured output
+            #if output:
+            #    # For structured output, we'll request JSON format in the prompt
+            #    json_instruction = f"\n\nPlease respond with valid JSON matching this schema: {output.model_json_schema()}"
+            #    messages[-1]["content"] += json_instruction
+            #    options["format"] = "json"
+
+            # Handle function calling
+            if tools and len(tools) > 0:
+                # Convert tools to Ollama format and add function calling instructions
+                tool_descriptions = []
+                for tool in tools:
+                    tool_desc = f"Function: {tool['name']}\nDescription: {tool.get('description', '')}\nParameters: {json.dumps(tool.get('parameters', {}), indent=2)}"
+                    tool_descriptions.append(tool_desc)
+                
+                function_instruction = f"""
+You have access to the following functions:
+
+{chr(10).join(tool_descriptions)}
+
+If you need to call a function, respond with JSON in this exact format:
+{{
+    "function_call": {{
+        "name": "function_name",
+        "args": {{
+            "param1": "value1",
+            "param2": "value2"
+        }}
+    }}
+}}
+If you need a function call only respond with the json above and nothing else.
+
+If you don't need to call a function, respond normally with your answer.
+"""
+                messages[-1]["content"] += function_instruction
+
+            logger.debug(f"--- ollama call ---\n{messages}")
+            
+            response = self.client.chat(
+                model=self.model_name,
+                messages=messages,
+                options=options,
+                think=0,
+                format=output.model_json_schema() if output else None
+            )
+            
+            content = response['message']['content'] if 'message' in response and 'content' in response['message'] else ""
+            function_call = None
+            
+            # Try to parse function call from response
+            if tools and content.strip():
+                try:
+                    # Try to parse as JSON to check for function calls
+                    parsed_response = json.loads(content.strip())
+                    if isinstance(parsed_response, dict) and "function_call" in parsed_response:
+                        func_call_data = parsed_response["function_call"]
+                        if "name" in func_call_data and "args" in func_call_data:
+                            function_call = FunctionCall(
+                                name=func_call_data["name"],
+                                args=func_call_data["args"]
+                            )
+                            # Clear content since this is a function call
+                            content = ""
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    # Not a function call, treat as regular content
+                    pass
+            
+            return ChatResponse(content=content, function_call=function_call)
+            
+        except Exception as e:
+            print(f"Error during Ollama chat: {e}")
+            return ChatResponse(content=f"Error: {e}", function_call=None)

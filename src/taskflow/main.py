@@ -2,21 +2,28 @@ import os
 
 from dotenv import load_dotenv
 
-from taskflow.llm import GeminiClient
+from taskflow.llm import GeminiClient, OllamaClient
 from taskflow.flow import Task, TaskFlow
 from taskflow.agents import Commiter, Evaluator, Reviewer
 from taskflow.tools import diff_tool
 from taskflow.mock import create_temp_git_repo
 
+# TODO: add support for ollama
+# TODO: get_client for get other client
+# TODO: improve the memory, how to reproduce after a failure?
+# TODO: extract the prompts from the code
+# TODO: basic cli for set the project dir
+# TODO: the task review concept seems to be abstract, can i introduce as a param?
 
 if __name__ == "__main__":
     load_dotenv()
 
     print("Initializing LegionAI system...")
-    DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-2.5-flash-preview-05-20") # Using a more recent model
-    gemini_client = GeminiClient(model_name=DEFAULT_MODEL)
+    DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-2.5-flash-preview-05-20")
+    #gemini_client = OllamaClient(model_name=DEFAULT_MODEL)
+    gemini_client = OllamaClient()
 
-    project_dir = os.path.abspath(os.path.join(os.getcwd(), "tmp_test_project")) # Use a local tmp dir
+    project_dir = os.path.abspath(os.path.join(os.getcwd(), "tmp_test_project"))
     create_temp_git_repo(project_dir)
 
     task = Task(
@@ -56,19 +63,19 @@ You MUST use the `diff_tool` to get the changes in the project.
 If your evaluation is positive, just respond with 'Commit message accepted', but
 if the commit message has any problems respond with 'Bad commit message', two new lines and the motive.
 """,
-        available_tools={'diff_tool': diff_tool} # Add diff_tool to the Reviewer's tools
+        available_tools={'diff_tool': diff_tool}
     )
 
-    reviewer_agent = Reviewer( # Initialize the Reviewer agent here
+    reviewer_agent = Reviewer(
         model=gemini_client,
         system_prompt="""
 You are a meticulous code reviewer. Your task is to provide a concise and constructive review of the given code changes, focusing on clarity, potential issues, and adherence to best practices. Summarize the key changes and any recommendations.
 You MUST use the `diff_tool` to get the staged changes in the project.
 """,
-        available_tools={'diff_tool': diff_tool} # Add diff_tool to the Reviewer's tools
+        available_tools={'diff_tool': diff_tool}
     )
 
-    flow = TaskFlow(model=gemini_client) # LegionAI uses its own LLM instance for orchestration
+    flow = TaskFlow(model=gemini_client)
     flow.add(commiter_agent)
     flow.add(evaluator_agent)
     flow.add(reviewer_agent)

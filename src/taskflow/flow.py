@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 from taskflow.agents import Agent, Commiter
 from taskflow.memory import Memory
 from taskflow.llm import LLMClient
-from taskflow.tools import DIFF_TOOL_SCHEMA
 
 class Task(BaseModel):
     """
@@ -55,7 +54,7 @@ class TaskFlow:
         print("OrchestratorAI is selecting an agent...")
         try:
             response = self.orchestrator_model.chat(prompt=selection_prompt)
-            selected_agent_name = response.candidates[0].content.parts[0].text.strip()
+            selected_agent_name = response.content.strip()
             print(f"LLM selected agent: '{selected_agent_name}'")
 
             for agent in self.available_agents:

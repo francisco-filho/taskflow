@@ -133,9 +133,8 @@ class Commiter(Agent):
             resp = self.model.chat(prompt=diff_prompt, system_prompt=self.system_prompt, tools=tools)
 
             # Check if the model wants to call a function
-            if resp.candidates[0].content.parts and hasattr(resp.candidates[0].content.parts[0], 'function_call'):
-                function_call = resp.candidates[0].content.parts[0].function_call
-                function_result = self._execute_function_call(function_call)
+            if resp.function_call:
+                function_result = self._execute_function_call(resp.function_call)
 
                 # Now ask for the commit message with the diff result and original prompt context
                 commit_prompt = f"""Based on the user request: "{prompt}"
@@ -150,7 +149,7 @@ Generate a commit message in the specified JSON format with a concise message an
 
                 # Second call to get the actual commit message
                 commit_resp = self.model.chat(prompt=commit_prompt, system_prompt=self.system_prompt, output=CommitMessage)
-                message_content = commit_resp.candidates[0].content.parts[0].text
+                message_content = commit_resp.content
 
                 try:
                     parsed_json = json.loads(message_content)
@@ -163,9 +162,8 @@ Generate a commit message in the specified JSON format with a concise message an
                     print(f"Warning: LLM response for Commiter was not valid JSON. Raw: {message_content}")
                     return {"message": "Invalid JSON response from LLM", "details": [message_content]}
             else:
-                # Direct response
-                message_content = resp.candidates[0].content.parts[0].text
-                return {"message": "No function call made", "details": [message_content]}
+                # Direct response without function call
+                return {"message": "No function call made", "details": [resp.content]}
 
         except Exception as e:
             print(f"Error during Commiter LLM interaction: {e}")
@@ -216,9 +214,8 @@ class Evaluator(Agent):
             resp = self.model.chat(prompt=diff_prompt, system_prompt=self.system_prompt, tools=tools)
 
             # Check if the model wants to call a function
-            if resp.candidates[0].content.parts and hasattr(resp.candidates[0].content.parts[0], 'function_call'):
-                function_call = resp.candidates[0].content.parts[0].function_call
-                function_result = self._execute_function_call(function_call)
+            if resp.function_call:
+                function_result = self._execute_function_call(resp.function_call)
 
                 # Now ask for the evaluation with the diff result and original context
                 eval_prompt = f"""User request: "{prompt}"
@@ -239,10 +236,10 @@ If the commit message has any problems, respond with 'Bad commit message', two n
 
                 # Second call to get the actual evaluation
                 eval_resp = self.model.chat(prompt=eval_prompt, system_prompt=self.system_prompt)
-                return eval_resp.candidates[0].content.parts[0].text
+                return eval_resp.content
             else:
                 # If no function call, treat as direct response
-                return resp.candidates[0].content.parts[0].text
+                return resp.content
 
         except Exception as e:
             print(f"Error during Evaluator LLM interaction: {e}")
@@ -286,9 +283,8 @@ class Reviewer(Agent):
             resp = self.model.chat(prompt=diff_prompt, system_prompt=self.system_prompt, tools=tools)
 
             # Check if the model wants to call a function
-            if resp.candidates[0].content.parts and hasattr(resp.candidates[0].content.parts[0], 'function_call'):
-                function_call = resp.candidates[0].content.parts[0].function_call
-                function_result = self._execute_function_call(function_call)
+            if resp.function_call:
+                function_result = self._execute_function_call(resp.function_call)
 
                 # Now ask for the review with the diff result and original context
                 review_prompt = f"""User request: "{prompt}"
@@ -302,10 +298,10 @@ Generate a concise review of the changes based on the user's request and the dif
 
                 # Second call to get the actual review
                 review_resp = self.model.chat(prompt=review_prompt, system_prompt=self.system_prompt)
-                return review_resp.candidates[0].content.parts[0].text
+                return review_resp.content
             else:
                 # If no function call, treat as direct response
-                return resp.candidates[0].content.parts[0].text
+                return resp.content
 
         except Exception as e:
             print(f"Error during Reviewer LLM interaction: {e}")

@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.ERROR)
 logging.getLogger("git").setLevel(logging.ERROR)
 logging.getLogger("httpcore").setLevel(logging.ERROR)
