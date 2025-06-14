@@ -13,7 +13,7 @@ def get_client(model: str = ""):
 
     if model == "default":
         return OllamaClient()
-    elif model in ["deepseek-r1:8b", "qwen2.5-coder:14b"]:
+    elif model in ["deepseek-r1:8b", "qwen2.5-coder:14b", "devstral:24b"]:
         return OllamaClient(model_name=model)
     elif model.startswith("gemini"):
         return GeminiClient(model)
@@ -27,6 +27,9 @@ class FunctionCall(BaseModel):
 class ChatResponse(BaseModel):
     content: str
     function_call: Optional[FunctionCall] = None
+    #input_tokens: int | None
+    #output_tokens: int | None
+    #duration: int
 
 class LLMClient(ABC):
     """
@@ -108,8 +111,7 @@ class GeminiClient(LLMClient):
             return ChatResponse(content=content, function_call=function_call)
             
         except Exception as e:
-            print(f"Error during Gemini chat: {e}")
-            # Return error as content in ChatResponse
+            logger.error(f"Error during Gemini chat: {e}")
             return ChatResponse(content=f"Error: {e}", function_call=None)
 
 
@@ -117,7 +119,7 @@ class OllamaClient(LLMClient):
     """
     Implementation of LLMClient for Ollama models.
     """
-    def __init__(self, model_name: str = "qwen2.5-coder:14b", host: str = "http://localhost:11434"):
+    def __init__(self, model_name: str = "qwen2.5-coder:14b", host: str = "http://127.0.0.1:11434"):
         """
         Initializes the Ollama client.
 
@@ -153,16 +155,8 @@ class OllamaClient(LLMClient):
         try:
             options = {}
             
-            # Handle structured output
-            #if output:
-            #    # For structured output, we'll request JSON format in the prompt
-            #    json_instruction = f"\n\nPlease respond with valid JSON matching this schema: {output.model_json_schema()}"
-            #    messages[-1]["content"] += json_instruction
-            #    options["format"] = "json"
-
-            # Handle function calling
+            # function calling
             if tools and len(tools) > 0:
-                # Convert tools to Ollama format and add function calling instructions
                 tool_descriptions = []
                 for tool in tools:
                     tool_desc = f"Function: {tool['name']}\nDescription: {tool.get('description', '')}\nParameters: {json.dumps(tool.get('parameters', {}), indent=2)}"
@@ -214,7 +208,6 @@ If you don't need to call a function, respond normally with your answer.
                                 name=func_call_data["name"],
                                 args=func_call_data["args"]
                             )
-                            # Clear content since this is a function call
                             content = ""
                 except (json.JSONDecodeError, KeyError, TypeError):
                     # Not a function call, treat as regular content
