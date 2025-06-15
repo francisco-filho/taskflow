@@ -1,7 +1,7 @@
-
 import os
 import argparse
 from pathlib import Path
+import json
 
 from dotenv import load_dotenv
 
@@ -11,10 +11,6 @@ from taskflow.agents import Commiter, Evaluator, Reviewer
 from taskflow.tools import diff_tool
 from taskflow.mock import create_temp_git_repo
 
-# TODO: improve the memory, how to reproduce after a failure?
-# TODO: extract the prompts from the code
-# TODO: basic cli for set the project dir
-# TODO: the task review concept seems to be abstract, can i introduce as a param?
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -67,6 +63,12 @@ Examples:
         action="store_true",
         help="Require approval for the task execution"
     )
+
+    parser.add_argument(
+        "--needs-eval",
+        action="store_true",
+        help="Enable LLM evaluation to check if the user request was fulfilled (default: True)"
+    )
     
     return parser.parse_args()
 
@@ -87,24 +89,27 @@ def validate_project_directory(project_dir):
     
     return project_path.resolve()
 
-def create_task(task_type, project_dir, needs_approval=False):
+def create_task(task_type, project_dir, needs_approval=False, needs_eval=False):
     """Create a task based on the task type."""
     if task_type == "commit":
         return Task(
             prompt=f"""
-            Generate a concise commit message for the staged changes in the project '{project_dir}'.
+            Generate a commit message for the staged changes in the project '{project_dir}'.
             """,
-            needs_approval=needs_approval
+            needs_approval=needs_approval,
+            needs_eval=needs_eval
         )
     elif task_type == "review":
         return Task(
             prompt=f"""
             Generate a concise REVIEW about changes in the project '{project_dir}'.
             """,
-            needs_approval=needs_approval
+            needs_approval=needs_approval,
+            needs_eval=needs_eval
         )
     else:
         raise ValueError(f"Unknown task type: {task_type}")
+
 
 def initialize_agents(client):
     """Initialize all agents with their respective configurations."""
@@ -144,6 +149,12 @@ You MUST use the `diff_tool` to get the staged changes in the project.
     
     return commiter_agent, evaluator_agent, reviewer_agent
 
+def format_final_response(response):
+    """Format the final response for clean output."""
+    if isinstance(response, dict):
+        return json.dumps(response, indent=2)
+    return str(response)
+
 def main():
     """Main function to run the TaskFlow CLI."""
     args = parse_arguments()
@@ -176,7 +187,7 @@ def main():
     
     # Create the task
     try:
-        task = create_task(args.task, project_dir, args.needs_approval)
+        task = create_task(args.task, project_dir, args.needs_approval, args.needs_eval)
         print(f"Created task: {args.task}")
     except ValueError as e:
         print(f"Error creating task: {e}")
@@ -196,15 +207,22 @@ def main():
         print(f"\nRunning {args.task} task (max attempts: {args.max_attempts})...")
         flow.run(task, max_attempts=args.max_attempts)
         
-        print("\n--- Task execution finished. Memory content: ---")
-        for interaction in flow.memory.get_history():
-            print(f"[{interaction['role'].upper()}]: {interaction['content']}")
+        # Print the final response as the last thing
+        final_response = flow.get_final_response()
+        if final_response:
+            print("\n" + "="*50)
+            print("FINAL RESULT:")
+            print("="*50)
+            print(format_final_response(final_response))
+        else:
+            print("\n" + "="*50)
+            print("No final response available - task may have failed")
+            print("="*50)
             
     except Exception as e:
         print(f"Error during task execution: {e}")
         return 1
     
-    print("\nTaskFlow execution completed successfully!")
     return 0
 
 if __name__ == "__main__":
