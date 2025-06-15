@@ -11,10 +11,6 @@ from taskflow.agents import Commiter, Evaluator, Reviewer
 from taskflow.tools import diff_tool
 from taskflow.mock import create_temp_git_repo
 
-# TODO: improve the memory, how to reproduce after a failure?
-# TODO: extract the prompts from the code
-# TODO: add costs/token usage
-
 
 def parse_arguments():
     """Parse command line arguments."""

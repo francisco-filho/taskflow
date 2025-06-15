@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Optional, List, Dict, Any
 from abc import ABC, abstractmethod
 
@@ -27,9 +28,9 @@ class FunctionCall(BaseModel):
 class ChatResponse(BaseModel):
     content: str
     function_call: Optional[FunctionCall] = None
-    #input_tokens: int | None
-    #output_tokens: int | None
-    #duration: int
+    input_tokens: int | None
+    output_tokens: int | None
+    duration: int
 
 class LLMClient(ABC):
     """
@@ -41,6 +42,14 @@ class LLMClient(ABC):
         Sends a chat prompt to the LLM and returns the response.
         """
         pass
+
+    def show_usage(self, response: ChatResponse):
+        logger.info("-"*30)
+        d = response.model_dump()
+        del d['content']
+        del d['function_call']
+        logger.info(d)
+        logger.info("-"*30)
 
 class GeminiClient(LLMClient):
     """
@@ -70,6 +79,8 @@ class GeminiClient(LLMClient):
         Returns:
             A ChatResponse object containing the content and optional function call.
         """
+        start_time = time.time()
+        
         contents = []
         if system_prompt:
             contents.append({"role": "user", "parts": [{ "text": f"System Instruction:\n{system_prompt}\n\nUser Prompt:\n{prompt}" }]})
@@ -91,9 +102,14 @@ class GeminiClient(LLMClient):
             logger.debug(f"--- llm call ---\n{contents}")
             response = self.model.models.generate_content(contents=contents, model=self.model_name, config=config)
             
+            end_time = time.time()
+            duration = int((end_time - start_time) * 1000)  # Convert to milliseconds
+            
             # Extract content and function call from the Gemini response
             content = ""
             function_call = None
+            input_tokens = None
+            output_tokens = None
             
             if response.candidates and len(response.candidates) > 0:
                 candidate = response.candidates[0]
@@ -108,11 +124,32 @@ class GeminiClient(LLMClient):
                                 args=dict(part.function_call.args) if part.function_call.args else {}
                             )
             
-            return ChatResponse(content=content, function_call=function_call)
+            # Extract token usage from response
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                input_tokens = getattr(response.usage_metadata, 'prompt_token_count', None)
+                output_tokens = getattr(response.usage_metadata, 'candidates_token_count', None)
+            
+            resp = ChatResponse(
+                content=content, 
+                function_call=function_call,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                duration=duration
+            )
+            self.show_usage(resp)
+            return resp
             
         except Exception as e:
+            end_time = time.time()
+            duration = int((end_time - start_time) * 1000)
             logger.error(f"Error during Gemini chat: {e}")
-            return ChatResponse(content=f"Error: {e}", function_call=None)
+            return ChatResponse(
+                content=f"Error: {e}", 
+                function_call=None,
+                input_tokens=None,
+                output_tokens=None,
+                duration=duration
+            )
 
 
 class OllamaClient(LLMClient):
@@ -132,6 +169,14 @@ class OllamaClient(LLMClient):
         self.client = ollama.Client(host=host)
         print(f"OllamaClient initialized with model: {model_name} at {host}")
 
+    def _estimate_tokens(self, text: str) -> int:
+        """
+        Rough estimation of tokens based on text length.
+        This is a fallback when Ollama doesn't provide token counts.
+        """
+        # Rough approximation: 1 token ≈ 4 characters for English text
+        return len(text) // 4
+
     def chat(self, prompt: str, system_prompt: str = "", output=None, tools: Optional[List[Dict]] = None) -> ChatResponse:
         """
         Sends a chat prompt to the Ollama model.
@@ -145,6 +190,8 @@ class OllamaClient(LLMClient):
         Returns:
             A ChatResponse object containing the content and optional function call.
         """
+        start_time = time.time()
+        
         messages = []
         
         if system_prompt:
@@ -193,8 +240,27 @@ If you don't need to call a function, respond normally with your answer.
                 format=output.model_json_schema() if output else None
             )
             
+            end_time = time.time()
+            duration = int((end_time - start_time) * 1000)  # Convert to milliseconds
+            
             content = response['message']['content'] if 'message' in response and 'content' in response['message'] else ""
             function_call = None
+            input_tokens = None
+            output_tokens = None
+            
+            # Extract token usage from Ollama response if available
+            if 'prompt_eval_count' in response:
+                input_tokens = response['prompt_eval_count']
+            elif system_prompt or prompt:
+                # Fallback estimation if token counts not available
+                input_text = (system_prompt + " " + prompt).strip()
+                input_tokens = self._estimate_tokens(input_text)
+            
+            if 'eval_count' in response:
+                output_tokens = response['eval_count']
+            elif content:
+                # Fallback estimation if token counts not available
+                output_tokens = self._estimate_tokens(content)
             
             # Try to parse function call from response
             if tools and content.strip():
@@ -213,8 +279,22 @@ If you don't need to call a function, respond normally with your answer.
                     # Not a function call, treat as regular content
                     pass
             
-            return ChatResponse(content=content, function_call=function_call)
+            return ChatResponse(
+                content=content, 
+                function_call=function_call,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                duration=duration
+            )
             
         except Exception as e:
+            end_time = time.time()
+            duration = int((end_time - start_time) * 1000)
             print(f"Error during Ollama chat: {e}")
-            return ChatResponse(content=f"Error: {e}", function_call=None)
+            return ChatResponse(
+                content=f"Error: {e}", 
+                function_call=None,
+                input_tokens=None,
+                output_tokens=None,
+                duration=duration
+            )
