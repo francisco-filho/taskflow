@@ -4,8 +4,9 @@ from abc import ABC, abstractmethod
 
 from pydantic import BaseModel
 
+from taskflow.util import CommitMessage, logger
 from taskflow.llm import LLMClient
-from taskflow.tools import DIFF_TOOL_SCHEMA
+from taskflow.tools import DIFF_TOOL_SCHEMA, COMMIT_TOOL_SCHEMA
 
 class Agent(ABC):
     """
@@ -91,83 +92,221 @@ class Agent(ABC):
         
         return ""
 
-class CommitMessage(BaseModel):
-    message: str
-    details: list[str]
-
 class Commiter(Agent):
     """
-    An agent responsible for generating commit messages based on project changes.
+    An agent responsible for generating commit messages based on project changes
+    and committing changes when requested.
     """
 
     def __init__(self, model: LLMClient, system_prompt: str, available_tools: Optional[Dict[str, Callable]] = None):
-        super().__init__("Commiter", model, "Generates commit messages from code diffs.", system_prompt, available_tools)
+        super().__init__("Commiter", model, "Generates commit messages from code diffs and commits changes when requested.", system_prompt, available_tools)
 
     def _get_tool_schemas(self) -> List[Dict]:
         """Returns the tool schemas available to the commiter agent."""
-        return [DIFF_TOOL_SCHEMA]
+        return [DIFF_TOOL_SCHEMA, COMMIT_TOOL_SCHEMA]
+
+    def _should_commit_changes(self, prompt: str) -> bool:
+        """
+        Determines if the user is requesting to actually commit changes.
+        
+        Parameters:
+            prompt: The user prompt to analyze.
+            
+        Returns:
+            True if the user wants to commit changes, False if they only want a commit message.
+        """
+        commit_keywords = [
+            "commit the changes",
+            "commit changes",
+            "make the commit",
+            "actually commit",
+            "perform the commit",
+            "execute the commit",
+            "do the commit"
+        ]
+        
+        prompt_lower = prompt.lower()
+        return any(keyword in prompt_lower for keyword in commit_keywords)
 
     def run(self, prompt: str, **kwargs) -> Dict[str, Any]:
         """
-        Generates a commit message using function calling.
-
+        Generates a commit message and optionally commits the changes.
+        
+        The agent will:
+        1. Get the diff of staged changes
+        2. Generate a commit message
+        3. If requested, commit the changes using the generated message
+        
         Parameters:
             prompt: The user prompt containing the request and project information.
             **kwargs: Additional keyword arguments (for compatibility).
 
         Returns:
-            A dictionary containing the generated commit message and details,
-            or an error message if the process fails.
+            A dictionary containing the generated commit message, details,
+            and commit result if a commit was performed.
         """
         print(f"Commiter agent running with prompt: {prompt[:100]}...")
 
         project_dir = self._extract_project_dir(prompt)
         if not project_dir:
-            return {"message": "Error: Could not extract project directory from prompt", "details": ["Please specify the project directory in your prompt"]}
+            return {
+                "message": "Error: Could not extract project directory from prompt", 
+                "details": ["Please specify the project directory in your prompt"],
+                "error": True
+            }
 
-        diff_prompt = f"Get the diff of staged changes for the project directory: {project_dir}"
+        should_commit = self._should_commit_changes(prompt)
+        print(f"Should commit changes: {should_commit}")
 
         try:
-            # First call with function calling enabled to get the diff
+            # Step 1: Get the diff of staged changes
+            diff_result = self._get_diff(project_dir)
+            if "Error" in diff_result:
+                return {
+                    "message": "Error getting diff", 
+                    "details": [diff_result],
+                    "error": True
+                }
+
+            # Step 2: Generate commit message based on diff
+            commit_message_data = self._generate_commit_message(prompt, diff_result)
+            if commit_message_data.get("error"):
+                return commit_message_data
+
+            # Step 3: If requested, commit the changes
+            if should_commit:
+                commit_result = self._perform_commit(project_dir, commit_message_data["message"])
+                commit_message_data["commit_result"] = commit_result
+                commit_message_data["committed"] = True
+                
+                if "Successfully committed" in commit_result:
+                    print("✓ Changes committed successfully!")
+                else:
+                    print("✗ Commit failed")
+                    commit_message_data["error"] = True
+            else:
+                commit_message_data["committed"] = False
+                print("Commit message generated (no commit performed)")
+
+            return commit_message_data
+
+        except Exception as e:
+            print(f"Error during Commiter execution: {e}")
+            return {
+                "message": f"Execution failed: {e}", 
+                "details": [],
+                "error": True
+            }
+
+    def _get_diff(self, project_dir: str) -> str:
+        """
+        Gets the diff of staged changes for the project.
+        
+        Parameters:
+            project_dir: The project directory path.
+            
+        Returns:
+            The diff result as a string.
+        """
+        diff_prompt = f"Get the diff of staged changes for the project directory: {project_dir}"
+        
+        try:
             tools = self._get_tool_schemas()
             resp = self.model.chat(prompt=diff_prompt, system_prompt=self.system_prompt, tools=tools)
+            
+            if resp.function_call and resp.function_call.name == "diff_tool":
+                diff_result = self._execute_function_call(resp.function_call)
+                return diff_result
+            else:
+                return "Error: Failed to get diff - no function call made"
+                
+        except Exception as e:
+            return f"Error: Failed to get diff - {e}"
 
-            # Check if the model wants to call a function
-            if resp.function_call:
-                function_result = self._execute_function_call(resp.function_call)
-
-                # Now ask for the commit message with the diff result and original prompt context
-                commit_prompt = f"""Based on the user request: "{prompt}"
+    def _generate_commit_message(self, original_prompt: str, diff_result: str) -> Dict[str, Any]:
+        """
+        Generates a commit message based on the diff result.
+        
+        Parameters:
+            original_prompt: The original user prompt.
+            diff_result: The git diff output.
+            
+        Returns:
+            A dictionary with the commit message and details.
+        """
+        commit_prompt = f"""Based on the user request: "{original_prompt}"
 
 And the following git diff:
 
 ```diff
-{function_result}
+{diff_result}
 ```
 
-Generate a commit message in the specified JSON format with a message and a detailed list"""
+Generate a commit message in the specified JSON format with a message and a detailed list of changes."""
 
-                # Second call to get the actual commit message
-                commit_resp = self.model.chat(prompt=commit_prompt, system_prompt=self.system_prompt, output=CommitMessage)
-                message_content = commit_resp.content
+        try:
+            # Generate commit message
+            commit_resp = self.model.chat(prompt=commit_prompt, system_prompt=self.system_prompt, output=CommitMessage)
+            message_content = commit_resp.content
 
-                try:
-                    parsed_json = json.loads(message_content)
-                    if isinstance(parsed_json, dict) and "message" in parsed_json and "details" in parsed_json:
-                        return parsed_json
-                    else:
-                        print(f"Warning: LLM response for Commiter was not in expected JSON format. Raw: {message_content}")
-                        return {"message": "Invalid format from LLM", "details": [message_content]}
-                except json.JSONDecodeError:
-                    print(f"Warning: LLM response for Commiter was not valid JSON. Raw: {message_content}")
-                    return {"message": "Invalid JSON response from LLM", "details": [message_content]}
-            else:
-                # Direct response without function call
-                return {"message": "No function call made", "details": [resp.content]}
-
+            try:
+                parsed_json = json.loads(message_content)
+                if isinstance(parsed_json, dict) and "message" in parsed_json and "details" in parsed_json:
+                    return parsed_json
+                else:
+                    print(f"Warning: LLM response was not in expected JSON format. Raw: {message_content}")
+                    return {
+                        "message": "Invalid format from LLM", 
+                        "details": [message_content],
+                        "error": True
+                    }
+            except json.JSONDecodeError:
+                print(f"Warning: LLM response was not valid JSON. Raw: {message_content}")
+                return {
+                    "message": "Invalid JSON response from LLM", 
+                    "details": [message_content],
+                    "error": True
+                }
+                
         except Exception as e:
-            print(f"Error during Commiter LLM interaction: {e}")
-            return {"message": f"LLM interaction failed: {e}", "details": []}
+            return {
+                "message": f"Failed to generate commit message: {e}", 
+                "details": [],
+                "error": True
+            }
+
+    def _perform_commit(self, project_dir: str, commit_message: str) -> str:
+        """
+        Performs the actual commit using the commit tool.
+        
+        Parameters:
+            project_dir: The project directory path.
+            commit_message: The commit message to use.
+            
+        Returns:
+            The result of the commit operation.
+        """
+        commit_prompt = f"""Commit the staged changes in project directory '{project_dir}' with the following commit message:
+
+"{commit_message}"
+
+Use the commit_tool to perform the actual commit."""
+
+        try:
+            tools = self._get_tool_schemas()
+            resp = self.model.chat(prompt=commit_prompt, system_prompt=self.system_prompt, tools=tools)
+            logger.info("-"*50)
+            logger.info(resp)
+            logger.info("-"*50)
+            
+            if resp.function_call and resp.function_call.name == "commit_tool":
+                commit_result = self._execute_function_call(resp.function_call)
+                return commit_result
+            else:
+                return "Error: Failed to commit - no function call made"
+                
+        except Exception as e:
+            return f"Error: Failed to commit - {e}"
 
 class Evaluator(Agent):
     """

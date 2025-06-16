@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from taskflow.llm import get_client
 from taskflow.flow import Task, TaskFlow
 from taskflow.agents import Commiter, Evaluator, Reviewer
-from taskflow.tools import diff_tool
+from taskflow.tools import diff_tool, commit_tool
 from taskflow.mock import create_temp_git_repo
 
 
@@ -19,10 +19,11 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --project /path/to/project --task commit
+  %(prog)s --project /path/to/project --task diff
   %(prog)s --project /path/to/project --task review
-  %(prog)s --project /path/to/project --task commit --model gemini-2.5-flash-preview-05-20
-  %(prog)s --create-temp-repo --task commit
+  %(prog)s --project /path/to/project --task commit
+  %(prog)s --project /path/to/project --task diff --model gemini-2.5-flash-preview-05-20
+  %(prog)s --create-temp-repo --task diff
         """
     )
     
@@ -34,9 +35,9 @@ Examples:
     
     parser.add_argument(
         "--task", "-t",
-        choices=["commit", "review"],
+        choices=["diff", "review", "commit"],
         default="review",
-        help="Task to perform: 'commit' or 'review' (default: review)"
+        help="Task to perform: 'diff', 'review', or 'commit' (default: review)"
     )
     
     parser.add_argument(
@@ -91,7 +92,7 @@ def validate_project_directory(project_dir):
 
 def create_task(task_type, project_dir, needs_approval=False, needs_eval=False):
     """Create a task based on the task type."""
-    if task_type == "commit":
+    if task_type == "diff":
         return Task(
             prompt=f"""
             Generate a commit message for the staged changes in the project '{project_dir}'.
@@ -107,24 +108,40 @@ def create_task(task_type, project_dir, needs_approval=False, needs_eval=False):
             needs_approval=needs_approval,
             needs_eval=needs_eval
         )
+    elif task_type == "commit":
+        return Task(
+            prompt=f"""
+            Generate a commit message for the staged changes in the project '{project_dir}' and commit the changes. Do the commit.
+            """,
+            needs_approval=needs_approval,
+            needs_eval=True
+        )
     else:
         raise ValueError(f"Unknown task type: {task_type}")
-
 
 def initialize_agents(client):
     """Initialize all agents with their respective configurations."""
     commiter_agent = Commiter(
         model=client,
         system_prompt="""
-You are a senior programmer that explains hard concepts clearly and are very succinctly in your messages. You can evaluate changes in a project just by reading the diff output from git.
+You are a senior programmer that explains hard concepts clearly and are very succinct in your messages. You can evaluate changes in a project just by reading the diff output from git.
 
-You MUST use the `diff_tool` to get the changes in the project.
+CAPABILITIES:
+1. Use the `diff_tool` to get the changes in the project
+2. Generate commit messages based on the diff
+3. Use the `commit_tool` to actually commit changes when requested
 
-Respond ONLY in the JSON format (example):
+INSTRUCTIONS:
+- For commit message generation tasks: Use diff_tool to analyze changes, then generate a commit message
+- For commit tasks: Use diff_tool to analyze changes, generate a commit message, then use commit_tool to commit
+- Always determine if the user wants to actually commit changes or just generate a message
 
+For commit message generation, respond ONLY in the JSON format (example):
 {"message": "Refactor GitReviewer for improved LLM integration and REPL functionality", "details": ["Introduced a `_get_config` method in `LLMGoogle` to centralize LLM calls.", "Refactored `main.py` to use a new `init_repl` function, streamlining the application's entry point and focusing on a REPL interface.", "Moved the `Message` Pydantic model to a dedicated `models.py`"]}
+
+For commit tasks, respond with the same JSON format but also include the commit result.
 """,
-        available_tools={'diff_tool': diff_tool}
+        available_tools={'diff_tool': diff_tool, 'commit_tool': commit_tool}
     )
 
     evaluator_agent = Evaluator(
@@ -173,7 +190,8 @@ def main():
     
     # Determine project directory
     if args.create_temp_repo:
-        project_dir = os.path.abspath(os.path.join(os.getcwd(), "tmp_test_project"))
+        #project_dir = os.path.abspath(os.path.join(os.getcwd(), "tmp_test_project"))
+        project_dir = "/tmp/tmp_test_project"
         print(f"Creating temporary git repository at: {project_dir}")
         create_temp_git_repo(project_dir)
     else:
