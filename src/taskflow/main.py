@@ -114,7 +114,7 @@ def create_task(task_type, project_dir, needs_approval=False, needs_eval=False):
             Generate a commit message for the staged changes in the project '{project_dir}' and commit the changes. Do the commit.
             """,
             needs_approval=needs_approval,
-            needs_eval=True
+            needs_eval=False
         )
     else:
         raise ValueError(f"Unknown task type: {task_type}")
@@ -235,7 +235,8 @@ def main():
     diff_messager_agent, commiter_agent, evaluator_agent, reviewer_agent = initialize_agents(client)
     
     # Create and configure the flow
-    flow = TaskFlow(model=client)
+    memory_file = "./taskflow_memory.json"
+    flow = TaskFlow(model=client, memory_file_path=memory_file)
     flow.add(diff_messager_agent)
     flow.add(commiter_agent)
     flow.add(evaluator_agent)
