@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from taskflow.util import logger
 from taskflow.llm import LLMClient
-from taskflow.models import CommitMessage
+from taskflow.models import CommitMessage, UserNotApprovedException
 from taskflow.tools import DIFF_TOOL_SCHEMA, COMMIT_TOOL_SCHEMA
 
 class Agent(ABC):
@@ -405,7 +405,12 @@ class Commiter(Agent):
 
         try:
             # Perform the commit
-            commit_result = self._perform_commit(project_dir, commit_message)
+            # Try to generalize this to all agents
+            approval = input(f"Can i commit the stagged changes with this message? [y/N]\n\n{commit_message}")
+            if "y" == approval.strip():
+                commit_result = self._perform_commit(project_dir, commit_message)
+            else:
+                raise UserNotApprovedException("User did not approve the message")
             
             if "Successfully committed" in commit_result:
                 print("✓ Changes committed successfully!")

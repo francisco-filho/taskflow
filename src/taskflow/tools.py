@@ -56,10 +56,10 @@ def commit_tool(project_dir: str, message: CommitMessage) -> str:
                 formatted_message += f"- {detail}\n"
         
         # Create the commit
-        #commit = repo.index.commit(formatted_message)
+        commit = repo.index.commit(formatted_message)
     
-        commit = "a"
-        logger.info(f"Comitando: {formatted_message}")
+        #commit = "a"
+        #logger.info(f"Comitando: {formatted_message}")
         
         return f"Successfully committed with hash: {commit.hexsha[:8]}"
         

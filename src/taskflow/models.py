@@ -30,3 +30,6 @@ class PlanningResponse(BaseModel):
 class CommitMessage(BaseModel):
     message: str
     details: list[str]
+
+class UserNotApprovedException(Exception):
+    pass
