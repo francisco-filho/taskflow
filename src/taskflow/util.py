@@ -12,7 +12,3 @@ logging.getLogger("httpcore").setLevel(logging.ERROR)
 logger = logging.getLogger("gitreviewer")
 
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-2.5-flash-preview-05-20")
-
-class CommitMessage(BaseModel):
-    message: str
-    details: list[str]

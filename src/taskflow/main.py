@@ -95,7 +95,7 @@ def create_task(task_type, project_dir, needs_approval=False, needs_eval=False):
     if task_type == "diff":
         return Task(
             prompt=f"""
-            Generate a commit message for the staged changes in the project '{project_dir}'.
+Propose a commit message for the staged changes in the project '{project_dir}'. Do not commit.
             """,
             needs_approval=needs_approval,
             needs_eval=needs_eval

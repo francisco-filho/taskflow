@@ -8,16 +8,7 @@ from taskflow.agents import Agent
 from taskflow.memory import PersistentMemory, EventType
 from taskflow.llm import LLMClient
 from taskflow.plan import Planner, PlanStep, ExecutionPlan
-
-
-class Task(BaseModel):
-    """
-    Represents a task requested by the user.
-    """
-    prompt: str = Field(..., description="The original user prompt for the task.")
-    needs_plan: bool = Field(False, description="True if the task requires an explicit plan from an LLM.")
-    needs_approval: bool = Field(True, description="True if the final result of the task needs user approval.")
-    needs_eval: bool = Field(True, description="True if you want a LLM call to evaluate if the user request was fulfilled.")
+from taskflow.models import Task
 
 
 class TaskFlow:
@@ -426,6 +417,7 @@ Be specific about what is missing or what needs to be done."""
         )
         
         print(f"\n--- TaskFlow: Running task ---")
+        print(f"{task.prompt}")
 
         # Step 1: Create execution plan using the Planner
         if task.needs_plan or self.planner.should_create_detailed_plan(task.prompt):

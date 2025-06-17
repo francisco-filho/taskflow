@@ -1,6 +1,7 @@
 import git 
 
-from taskflow.util import CommitMessage, logger
+from taskflow.util import logger
+from taskflow.models import CommitMessage
 
 def diff_tool(project_dir: str, only_staged: bool = True) -> str:
     """
@@ -42,9 +43,6 @@ def commit_tool(project_dir: str, message: CommitMessage) -> str:
         A string indicating success or error message.
     """
     try:
-        logger.info("-" * 30)
-        logger.info("Commiting changes")
-        logger.info("-" * 30)
         repo = git.Repo(project_dir)
         
         #TODO: Check if there are staged changes
@@ -58,7 +56,10 @@ def commit_tool(project_dir: str, message: CommitMessage) -> str:
                 formatted_message += f"- {detail}\n"
         
         # Create the commit
-        commit = repo.index.commit(formatted_message)
+        #commit = repo.index.commit(formatted_message)
+    
+        commit = "a"
+        logger.info(f"Comitando: {formatted_message}")
         
         return f"Successfully committed with hash: {commit.hexsha[:8]}"
         

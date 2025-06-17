@@ -4,8 +4,9 @@ from abc import ABC, abstractmethod
 
 from pydantic import BaseModel
 
-from taskflow.util import CommitMessage, logger
+from taskflow.util import logger
 from taskflow.llm import LLMClient
+from taskflow.models import CommitMessage
 from taskflow.tools import DIFF_TOOL_SCHEMA, COMMIT_TOOL_SCHEMA
 
 class Agent(ABC):
