@@ -8,6 +8,20 @@ from taskflow.agents import Agent, Commiter
 from taskflow.memory import Memory
 from taskflow.llm import LLMClient
 
+class PlanStepModel(BaseModel):
+    """Pydantic model for individual plan steps"""
+    step_number: int = Field(..., description="Sequential number of the step")
+    agent_name: str = Field(..., description="Name of the agent that will execute this step")
+    description: str = Field(..., description="Description of what this step will accomplish")
+    input_context: str = Field(default="", description="Context or input this step needs")
+    depends_on: List[int] = Field(default_factory=list, description="List of step numbers this step depends on")
+
+class PlanningResponse(BaseModel):
+    """Pydantic model for the planning prompt response"""
+    requires_planning: bool = Field(..., description="Whether the task requires multiple steps or agents")
+    reasoning: str = Field(..., description="Explanation of why planning is or isn't needed")
+    steps: List[PlanStepModel] = Field(default_factory=list, description="List of execution steps")
+
 @dataclass
 class PlanStep:
     """Represents a single step in the execution plan"""
@@ -97,7 +111,7 @@ Available Agents:
 
 Analyze the task and determine if it requires multiple steps or agents. If so, break it down into sequential steps.
 
-Please respond with a JSON object in this format:
+Please respond with a JSON object in this format, without markdown quotation marks:
 {{
     "requires_planning": true/false,
     "reasoning": "explanation of why planning is or isn't needed",
@@ -124,11 +138,12 @@ Examples of tasks that need planning:
 - "Review the code, make changes, then commit" (3 steps: review, modify, commit)
 - "Analyze the diff and create a detailed report" (might need 1 or 2 steps depending on complexity)
 
-Respond ONLY with valid JSON."""
+Do not use Markdown. Respond as JSON"""
 
         print("Creating execution plan...")
         try:
-            response = self.orchestrator_model.chat(prompt=planning_prompt)
+            response = self.orchestrator_model.chat(prompt=planning_prompt, output=PlanningResponse)
+            print(f"my plan: {response.content}")
             plan_data = json.loads(response.content.strip())
             
             print(f"Planning analysis: {plan_data.get('reasoning', 'No reasoning provided')}")
@@ -308,7 +323,7 @@ Be specific about what is missing or what needs to be done."""
             print(f"Error during task evaluation: {e}")
             return False, f"Error during evaluation: {e}"
 
-    def run(self, task: Task, max_attempts: int = 3):
+    def run(self, task: Task, max_attempts: int = 10):
         """
         Executes the task by creating and following an execution plan.
         """

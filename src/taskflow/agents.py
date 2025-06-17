@@ -92,60 +92,35 @@ class Agent(ABC):
         
         return ""
 
-class Commiter(Agent):
+class DiffMessager(Agent):
     """
-    An agent responsible for generating commit messages based on project changes
-    and committing changes when requested.
+    An agent responsible for generating commit messages based on project changes.
+    This agent analyzes diffs and creates appropriate commit messages.
     """
 
     def __init__(self, model: LLMClient, system_prompt: str, available_tools: Optional[Dict[str, Callable]] = None):
-        super().__init__("Commiter", model, "Generates commit messages from code diffs and commits changes when requested.", system_prompt, available_tools)
+        super().__init__("DiffMessager", model, "Generates commit messages from code diffs by analyzing staged changes.", system_prompt, available_tools)
 
     def _get_tool_schemas(self) -> List[Dict]:
-        """Returns the tool schemas available to the commiter agent."""
-        return [DIFF_TOOL_SCHEMA, COMMIT_TOOL_SCHEMA]
-
-    def _should_commit_changes(self, prompt: str) -> bool:
-        """
-        Determines if the user is requesting to actually commit changes.
-        
-        Parameters:
-            prompt: The user prompt to analyze.
-            
-        Returns:
-            True if the user wants to commit changes, False if they only want a commit message.
-        """
-        commit_keywords = [
-            "commit the changes",
-            "commit changes",
-            "make the commit",
-            "actually commit",
-            "perform the commit",
-            "execute the commit",
-            "do the commit"
-        ]
-        
-        prompt_lower = prompt.lower()
-        return any(keyword in prompt_lower for keyword in commit_keywords)
+        """Returns the tool schemas available to the diff messager agent."""
+        return [DIFF_TOOL_SCHEMA]
 
     def run(self, prompt: str, **kwargs) -> Dict[str, Any]:
         """
-        Generates a commit message and optionally commits the changes.
+        Generates a commit message based on staged changes.
         
         The agent will:
         1. Get the diff of staged changes
-        2. Generate a commit message
-        3. If requested, commit the changes using the generated message
+        2. Generate an appropriate commit message based on the changes
         
         Parameters:
             prompt: The user prompt containing the request and project information.
             **kwargs: Additional keyword arguments (for compatibility).
 
         Returns:
-            A dictionary containing the generated commit message, details,
-            and commit result if a commit was performed.
+            A dictionary containing the generated commit message and details.
         """
-        print(f"Commiter agent running with prompt: {prompt[:100]}...")
+        print(f"DiffMessager agent running with prompt: {prompt[:100]}...")
 
         project_dir = self._extract_project_dir(prompt)
         if not project_dir:
@@ -154,9 +129,6 @@ class Commiter(Agent):
                 "details": ["Please specify the project directory in your prompt"],
                 "error": True
             }
-
-        should_commit = self._should_commit_changes(prompt)
-        print(f"Should commit changes: {should_commit}")
 
         try:
             # Step 1: Get the diff of staged changes
@@ -173,25 +145,11 @@ class Commiter(Agent):
             if commit_message_data.get("error"):
                 return commit_message_data
 
-            # Step 3: If requested, commit the changes
-            if should_commit:
-                commit_result = self._perform_commit(project_dir, commit_message_data["message"])
-                commit_message_data["commit_result"] = commit_result
-                commit_message_data["committed"] = True
-                
-                if "Successfully committed" in commit_result:
-                    print("✓ Changes committed successfully!")
-                else:
-                    print("✗ Commit failed")
-                    commit_message_data["error"] = True
-            else:
-                commit_message_data["committed"] = False
-                print("Commit message generated (no commit performed)")
-
+            print("✓ Commit message generated successfully!")
             return commit_message_data
 
         except Exception as e:
-            print(f"Error during Commiter execution: {e}")
+            print(f"Error during DiffMessager execution: {e}")
             return {
                 "message": f"Execution failed: {e}", 
                 "details": [],
@@ -271,6 +229,204 @@ Generate a commit message in the specified JSON format with a message and a deta
         except Exception as e:
             return {
                 "message": f"Failed to generate commit message: {e}", 
+                "details": [],
+                "error": True
+            }
+
+class Commiter(Agent):
+    """
+    An agent responsible for committing changes to a git repository.
+    This agent expects to receive a commit message and performs the actual commit operation.
+    """
+
+    def __init__(self, model: LLMClient, system_prompt: str, available_tools: Optional[Dict[str, Callable]] = None):
+        super().__init__("Commiter", model, "Commits staged changes to git repository using provided commit message.", system_prompt, available_tools)
+
+    def _get_tool_schemas(self) -> List[Dict]:
+        """Returns the tool schemas available to the commiter agent."""
+        return [COMMIT_TOOL_SCHEMA]
+
+    def _extract_commit_message(self, prompt: str) -> str:
+        """
+        Extracts the commit message from the prompt, including both message and details.
+        
+        Parameters:
+            prompt: The prompt containing the commit message.
+            
+        Returns:
+            The extracted commit message formatted with details.
+        """
+        # First try to parse as JSON (from DiffMessager output)
+        try:
+            import json
+            import re
+            
+            # Look for JSON-like structure in the prompt
+            json_pattern = r'\{[^{}]*"message"[^{}]*"details"[^{}]*\}'
+            json_matches = re.findall(json_pattern, prompt, re.DOTALL)
+            
+            for json_str in json_matches:
+                try:
+                    commit_data = json.loads(json_str)
+                    if isinstance(commit_data, dict) and "message" in commit_data:
+                        message = commit_data["message"]
+                        details = commit_data.get("details", [])
+                        
+                        if details:
+                            # Format message with details
+                            formatted_message = message
+                            if not message.endswith('\n'):
+                                formatted_message += '\n'
+                            formatted_message += '\n' + '\n'.join([f"• {detail}" for detail in details])
+                            return formatted_message
+                        else:
+                            return message
+                except json.JSONDecodeError:
+                    continue
+                    
+            # If we find a larger JSON block, try to parse it
+            json_block_pattern = r'\{.*?"message".*?"details".*?\}'
+            json_blocks = re.findall(json_block_pattern, prompt, re.DOTALL)
+            
+            for json_block in json_blocks:
+                try:
+                    commit_data = json.loads(json_block)
+                    if isinstance(commit_data, dict) and "message" in commit_data:
+                        message = commit_data["message"]
+                        details = commit_data.get("details", [])
+                        
+                        if details:
+                            # Format message with details
+                            formatted_message = message
+                            if not message.endswith('\n'):
+                                formatted_message += '\n'
+                            formatted_message += '\n' + '\n'.join([f"• {detail}" for detail in details])
+                            return formatted_message
+                        else:
+                            return message
+                except json.JSONDecodeError:
+                    continue
+                    
+        except Exception:
+            pass
+        
+        # Fallback to original extraction patterns for simple messages
+        patterns = [
+            'commit message: "',
+            'commit message:"',
+            'message: "',
+            'message:"',
+            '"message":',
+            'commit with message "',
+            'commit: "',
+        ]
+        
+        prompt_lower = prompt.lower()
+        
+        for pattern in patterns:
+            if pattern in prompt_lower:
+                start_idx = prompt_lower.find(pattern) + len(pattern)
+                if pattern.endswith('"'):
+                    # Find the closing quote
+                    end_idx = prompt.find('"', start_idx)
+                    if end_idx != -1:
+                        return prompt[start_idx:end_idx].strip()
+                else:
+                    # Extract until end of line or sentence
+                    rest = prompt[start_idx:].strip()
+                    if rest.startswith('"'):
+                        # Remove opening quote and find closing quote
+                        rest = rest[1:]
+                        end_idx = rest.find('"')
+                        if end_idx != -1:
+                            return rest[:end_idx].strip()
+                    else:
+                        # Take until newline or period
+                        for end_char in ['\n', '.', '!', '?']:
+                            end_idx = rest.find(end_char)
+                            if end_idx != -1:
+                                return rest[:end_idx].strip()
+                        return rest.strip()
+        
+        # If no specific pattern found, try to extract JSON-like message
+        try:
+            if '"message"' in prompt:
+                start = prompt.find('"message"')
+                colon_idx = prompt.find(':', start)
+                if colon_idx != -1:
+                    rest = prompt[colon_idx + 1:].strip()
+                    if rest.startswith('"'):
+                        rest = rest[1:]
+                        end_idx = rest.find('"')
+                        if end_idx != -1:
+                            return rest[:end_idx].strip()
+        except:
+            pass
+        
+        return ""
+
+    def run(self, prompt: str, **kwargs) -> Dict[str, Any]:
+        """
+        Commits changes using the provided commit message.
+        
+        The agent will:
+        1. Extract the commit message from the prompt
+        2. Extract the project directory
+        3. Perform the commit using the commit tool
+        
+        Parameters:
+            prompt: The user prompt containing the commit message and project information.
+            **kwargs: Additional keyword arguments (for compatibility).
+
+        Returns:
+            A dictionary containing the commit result.
+        """
+        print(f"Commiter agent running with prompt: {prompt[:100]}...")
+
+        project_dir = self._extract_project_dir(prompt)
+        if not project_dir:
+            return {
+                "message": "Error: Could not extract project directory from prompt", 
+                "details": ["Please specify the project directory in your prompt"],
+                "error": True
+            }
+
+        commit_message = self._extract_commit_message(prompt)
+        if not commit_message:
+            return {
+                "message": "Error: Could not extract commit message from prompt", 
+                "details": ["Please provide a commit message in your prompt"],
+                "error": True
+            }
+
+        print(f"Extracted commit message: {commit_message}")
+        print(f"Project directory: {project_dir}")
+
+        try:
+            # Perform the commit
+            commit_result = self._perform_commit(project_dir, commit_message)
+            
+            if "Successfully committed" in commit_result:
+                print("✓ Changes committed successfully!")
+                return {
+                    "message": commit_message,
+                    "commit_result": commit_result,
+                    "committed": True,
+                    "error": False
+                }
+            else:
+                print("✗ Commit failed")
+                return {
+                    "message": commit_message,
+                    "commit_result": commit_result,
+                    "committed": False,
+                    "error": True
+                }
+
+        except Exception as e:
+            print(f"Error during Commiter execution: {e}")
+            return {
+                "message": f"Execution failed: {e}", 
                 "details": [],
                 "error": True
             }

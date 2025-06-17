@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 from taskflow.llm import get_client
 from taskflow.flow import Task, TaskFlow
-from taskflow.agents import Commiter, Evaluator, Reviewer
+from taskflow.agents import DiffMessager, Commiter, Evaluator, Reviewer
 from taskflow.tools import diff_tool, commit_tool
 from taskflow.mock import create_temp_git_repo
 
@@ -55,7 +55,7 @@ Examples:
     parser.add_argument(
         "--max-attempts",
         type=int,
-        default=3,
+        default=13,
         help="Maximum number of attempts for task execution (default: 3)"
     )
     
@@ -121,7 +121,7 @@ def create_task(task_type, project_dir, needs_approval=False, needs_eval=False):
 
 def initialize_agents(client):
     """Initialize all agents with their respective configurations."""
-    commiter_agent = Commiter(
+    diff_messager_agent = DiffMessager(
         model=client,
         system_prompt="""
 You are a senior programmer that explains hard concepts clearly and are very succinct in your messages. You can evaluate changes in a project just by reading the diff output from git.
@@ -129,19 +129,39 @@ You are a senior programmer that explains hard concepts clearly and are very suc
 CAPABILITIES:
 1. Use the `diff_tool` to get the changes in the project
 2. Generate commit messages based on the diff
-3. Use the `commit_tool` to actually commit changes when requested
 
 INSTRUCTIONS:
-- For commit message generation tasks: Use diff_tool to analyze changes, then generate a commit message
-- For commit tasks: Use diff_tool to analyze changes, generate a commit message, then use commit_tool to commit
-- Always determine if the user wants to actually commit changes or just generate a message
+- Use diff_tool to analyze changes, then generate a commit message
+- Analyze the changes thoroughly to create meaningful commit messages
+- Focus on the purpose and impact of the changes
 
 For commit message generation, respond ONLY in the JSON format (example):
 {"message": "Refactor GitReviewer for improved LLM integration and REPL functionality", "details": ["Introduced a `_get_config` method in `LLMGoogle` to centralize LLM calls.", "Refactored `main.py` to use a new `init_repl` function, streamlining the application's entry point and focusing on a REPL interface.", "Moved the `Message` Pydantic model to a dedicated `models.py`"]}
-
-For commit tasks, respond with the same JSON format but also include the commit result.
 """,
-        available_tools={'diff_tool': diff_tool, 'commit_tool': commit_tool}
+        available_tools={'diff_tool': diff_tool}
+    )
+
+    commiter_agent = Commiter(
+        model=client,
+        system_prompt="""
+You are a git commit specialist. Your only responsibility is to commit staged changes using the provided commit message.
+
+CAPABILITIES:
+1. Use the `commit_tool` to commit changes to the repository
+
+INSTRUCTIONS:
+- Extract the commit message from the user's prompt
+- Extract the project directory from the user's prompt
+- Use commit_tool to perform the actual commit operation
+- Confirm successful commit completion
+
+You will receive prompts containing:
+- A commit message (in various formats like 'commit message: "..."' or JSON format)
+- A project directory path
+
+Your job is to execute the commit using the provided information.
+""",
+        available_tools={'commit_tool': commit_tool}
     )
 
     evaluator_agent = Evaluator(
@@ -164,7 +184,7 @@ You MUST use the `diff_tool` to get the staged changes in the project.
         available_tools={'diff_tool': diff_tool}
     )
     
-    return commiter_agent, evaluator_agent, reviewer_agent
+    return diff_messager_agent, commiter_agent, evaluator_agent, reviewer_agent
 
 def format_final_response(response):
     """Format the final response for clean output."""
@@ -212,10 +232,11 @@ def main():
         return 1
     
     # Initialize agents
-    commiter_agent, evaluator_agent, reviewer_agent = initialize_agents(client)
+    diff_messager_agent, commiter_agent, evaluator_agent, reviewer_agent = initialize_agents(client)
     
     # Create and configure the flow
     flow = TaskFlow(model=client)
+    flow.add(diff_messager_agent)
     flow.add(commiter_agent)
     flow.add(evaluator_agent)
     flow.add(reviewer_agent)
