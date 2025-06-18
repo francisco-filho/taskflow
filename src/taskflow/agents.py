@@ -2,8 +2,6 @@ import json
 from typing import Optional, Dict, List, Any, Callable
 from abc import ABC, abstractmethod
 
-from pydantic import BaseModel
-
 from taskflow.util import logger
 from taskflow.llm import LLMClient
 from taskflow.models import CommitMessage, UserNotApprovedException
@@ -134,7 +132,7 @@ class DiffMessager(Agent):
         try:
             # Step 1: Get the diff of staged changes
             diff_result = self._get_diff(project_dir)
-            if "Error" in diff_result:
+            if diff_result.startswith("Error: "):
                 return {
                     "message": "Error getting diff", 
                     "details": [diff_result],
@@ -175,11 +173,13 @@ class DiffMessager(Agent):
             
             if resp.function_call and resp.function_call.name == "diff_tool":
                 diff_result = self._execute_function_call(resp.function_call)
+                logger.info(diff_result)
                 return diff_result
             else:
                 return "Error: Failed to get diff - no function call made"
                 
         except Exception as e:
+            logger.error(e)
             return f"Error: Failed to get diff - {e}"
 
     def _generate_commit_message(self, original_prompt: str, diff_result: str) -> Dict[str, Any]:
@@ -201,7 +201,7 @@ And the following git diff:
 {diff_result}
 ```
 
-Generate a commit message in the specified JSON format with a message and a detailed list of changes."""
+Generate a commit message in the specified JSON format with a message and a detailed list of changes. Without bullet points"""
 
         try:
             # Generate commit message
@@ -278,7 +278,7 @@ class Commiter(Agent):
                             formatted_message = message
                             if not message.endswith('\n'):
                                 formatted_message += '\n'
-                            formatted_message += '\n' + '\n'.join([f"• {detail}" for detail in details])
+                            formatted_message += '\n' + '\n'.join([f"{detail}" for detail in details])
                             return formatted_message
                         else:
                             return message
@@ -406,7 +406,7 @@ class Commiter(Agent):
         try:
             # Perform the commit
             # Try to generalize this to all agents
-            approval = input(f"Can i commit the stagged changes with this message? [y/N]\n\n{commit_message}")
+            approval = input(f"\n{'-'*80}\n{commit_message}\n{'-'*80}\n\nCan i commit the stagged changes with this message? [y/N] ")
             if "y" == approval.strip():
                 commit_result = self._perform_commit(project_dir, commit_message)
             else:
@@ -472,76 +472,221 @@ Use the commit_tool to perform the actual commit."""
 
 class Evaluator(Agent):
     """
-    An agent responsible for evaluating the quality of commit messages.
+    A general-purpose agent responsible for evaluating whether a previous agent's response
+    fulfills the user's original request.
     """
     def __init__(self, model: LLMClient, system_prompt: str, available_tools: Optional[Dict[str, Callable]] = None):
-        super().__init__("Evaluator", model, "Evaluates the quality of commit messages.", system_prompt, available_tools)
+        super().__init__("Evaluator", model, "Evaluates whether previous agent responses fulfill user requests.", system_prompt, available_tools)
 
     def _get_tool_schemas(self) -> List[Dict]:
         """Returns the tool schemas available to the evaluator agent."""
+        # The evaluator might need access to tools like diff_tool depending on the evaluation context
         return [DIFF_TOOL_SCHEMA]
 
-    def run(self, prompt: str, commit_message: Optional[Dict[str, Any]] = None, **kwargs) -> str:
+    def _extract_user_request_and_response(self, prompt: str) -> tuple[str, str]:
         """
-        Evaluates a given commit message against project changes using function calling.
+        Extracts the original user request and the previous agent's response from the prompt.
+        
+        Parameters:
+            prompt: The prompt containing both the user request and the response to evaluate.
+            
+        Returns:
+            A tuple of (user_request, agent_response)
+        """
+        # Look for common patterns that separate user request from agent response
+        separators = [
+            "Agent Response:",
+            "Previous Step Result:",
+            "Step Result:",
+            "Response:",
+            "Output:",
+            "Result:",
+        ]
+        
+        user_request = ""
+        agent_response = ""
+        
+        # Try to find the original task/request
+        if "Original Task:" in prompt:
+            start_idx = prompt.find("Original Task:") + len("Original Task:")
+            # Find the end of the original task (usually before agent response)
+            end_markers = separators + ["Step Context:", "Previous Step Results:"]
+            end_idx = len(prompt)
+            
+            for marker in end_markers:
+                marker_idx = prompt.find(marker, start_idx)
+                if marker_idx != -1 and marker_idx < end_idx:
+                    end_idx = marker_idx
+            
+            user_request = prompt[start_idx:end_idx].strip()
+        
+        # Try to find the agent response
+        for separator in separators:
+            if separator in prompt:
+                start_idx = prompt.find(separator) + len(separator)
+                # Take everything after the separator as the response
+                agent_response = prompt[start_idx:].strip()
+                break
+        
+        # If no clear separation found, try to parse JSON responses
+        if not agent_response:
+            try:
+                import json
+                import re
+                
+                # Look for JSON-like structures that might be agent responses
+                json_pattern = r'\{[^{}]*"message"[^{}]*\}'
+                json_matches = re.findall(json_pattern, prompt, re.DOTALL)
+                
+                if json_matches:
+                    agent_response = json_matches[-1]  # Take the last JSON match
+                
+                # Also look for larger JSON blocks
+                json_block_pattern = r'\{.*?\}'
+                json_blocks = re.findall(json_block_pattern, prompt, re.DOTALL)
+                
+                if json_blocks and not agent_response:
+                    agent_response = json_blocks[-1]  # Take the last JSON block
+                    
+            except Exception:
+                pass
+        
+        # If still no response found, take the latter part of the prompt
+        if not agent_response and user_request:
+            # Everything after the user request could be the response
+            remaining = prompt.replace(f"Original Task: {user_request}", "").strip()
+            if remaining:
+                agent_response = remaining
+        elif not user_request and not agent_response:
+            # Fallback: split the prompt in half
+            lines = prompt.split('\n')
+            mid_point = len(lines) // 2
+            user_request = '\n'.join(lines[:mid_point]).strip()
+            agent_response = '\n'.join(lines[mid_point:]).strip()
+        
+        return user_request, agent_response
+
+    def _determine_evaluation_context(self, user_request: str, agent_response: str) -> str:
+        """
+        Determines what type of evaluation is needed based on the user request.
+        
+        Parameters:
+            user_request: The original user request.
+            agent_response: The agent's response to evaluate.
+            
+        Returns:
+            A string indicating the evaluation context or empty string if no special context needed.
+        """
+        request_lower = user_request.lower()
+        
+        # Check if this involves code changes and might need diff context
+        if any(keyword in request_lower for keyword in [
+            'commit', 'diff', 'changes', 'staged', 'git', 'repository', 'code review'
+        ]):
+            project_dir = self._extract_project_dir(user_request + " " + agent_response)
+            if project_dir:
+                return f"code_changes:{project_dir}"
+        
+        return ""
+
+    def _get_additional_context(self, evaluation_context: str) -> str:
+        """
+        Gets additional context needed for evaluation (e.g., git diff for code-related tasks).
+        
+        Parameters:
+            evaluation_context: The context type and parameters.
+            
+        Returns:
+            Additional context string or empty string if none needed.
+        """
+        if evaluation_context.startswith("code_changes:"):
+            project_dir = evaluation_context.split(":", 1)[1]
+            
+            # Get the diff to provide context for code-related evaluations
+            diff_prompt = f"Get the diff of staged changes for the project directory: {project_dir}"
+            
+            try:
+                tools = self._get_tool_schemas()
+                resp = self.model.chat(prompt=diff_prompt, system_prompt=self.system_prompt, tools=tools)
+                
+                if resp.function_call and resp.function_call.name == "diff_tool":
+                    diff_result = self._execute_function_call(resp.function_call)
+                    return f"\nGit Diff Context:\n```diff\n{diff_result}\n```"
+                
+            except Exception as e:
+                print(f"Warning: Could not get diff context: {e}")
+        
+        return ""
+
+    def run(self, prompt: str, **kwargs) -> str:
+        """
+        Evaluates whether a previous agent's response fulfills the user's original request.
+        The prompt should contain both the user request and the response to be evaluated.
 
         Parameters:
-            prompt: The user prompt containing the request and project information.
-            commit_message: The commit message (as a dictionary) to evaluate. If not provided, 
-                          it will be extracted from the prompt.
+            prompt: The prompt containing the user request and the previous agent's response.
             **kwargs: Additional keyword arguments (for compatibility).
 
         Returns:
-            A string indicating if the commit message is accepted or rejected with a reason.
+            A string indicating if the request was fulfilled or not, with reasoning.
         """
         print(f"Evaluator agent running with prompt: {prompt[:100]}...")
 
-        project_dir = self._extract_project_dir(prompt)
-        if not project_dir:
-            return "Error: Could not extract project directory from prompt. Please specify the project directory."
+        # Extract the user request and agent response from the prompt
+        user_request, agent_response = self._extract_user_request_and_response(prompt)
+        
+        if not user_request:
+            return "Error: Could not extract user request from prompt."
+        
+        if not agent_response:
+            return "Error: Could not extract agent response from prompt."
+        
+        print(f"Extracted user request: {user_request[:100]}...")
+        print(f"Extracted agent response: {agent_response[:100]}...")
+        
+        # Determine if we need additional context for evaluation
+        evaluation_context = self._determine_evaluation_context(user_request, agent_response)
+        additional_context = self._get_additional_context(evaluation_context)
+        
+        # Create the evaluation prompt
+        eval_prompt = f"""You are evaluating whether an agent's response fulfills a user's request.
 
-        if commit_message is None:
-            return "Error: No commit message provided for evaluation."
+Original User Request:
+```
+{user_request}
+```
 
-        message_str = f"Message: {commit_message.get('message', '')}\nDetails:\n" + \
-                      "\n".join([f"- {d}" for d in commit_message.get('details', [])])
+Agent's Response:
+```
+{agent_response}
+```
+{additional_context}
 
-        # Create a focused prompt for getting the diff
-        diff_prompt = f"Get the diff of staged changes for the project directory: {project_dir}"
+Evaluate whether the agent's response adequately fulfills the user's original request the only exception is if the user 'asks for evaluation', because this is your job
+
+IMPORTANT EVALUATION CRITERIA:
+- Does the response directly address what the user asked for?
+- If the user requested an action (like committing changes), was the action actually performed?
+- If the user requested information (like a review or diff), was the information provided?
+- If the user requested generation of content (like a commit message), was the content generated?
+- Are there any obvious gaps between what was requested and what was delivered?
+- You should not reject a response because a lack of the previous agent evaluation, YOU will do the evaluation
+- The evaluation is your job
+
+Respond with either:
+1. "REQUEST FULFILLED\n\n{agent_response}" if the agent's response adequately addresses the user's request
+2. "REQUEST NOT FULFILLED: [specific reason]" if the request was not adequately fulfilled
+
+Be specific about what is missing or what needs to be done if the request was not fulfilled."""
 
         try:
-            # First call with function calling enabled to get the diff
-            tools = self._get_tool_schemas()
-            resp = self.model.chat(prompt=diff_prompt, system_prompt=self.system_prompt, tools=tools)
-
-            # Check if the model wants to call a function
-            if resp.function_call:
-                function_result = self._execute_function_call(resp.function_call)
-
-                # Now ask for the evaluation with the diff result and original context
-                eval_prompt = f"""User request: "{prompt}"
-
-Commit Message to evaluate:
-```
-{message_str}
-```
-
-Git Diff:
-```diff
-{function_result}
-```
-
-Evaluate the quality of the commit message against the changes shown in the diff.
-If your evaluation is positive, respond with 'Commit message accepted'.
-If the commit message has any problems, respond with 'Bad commit message', two new lines, and the reason."""
-
-                # Second call to get the actual evaluation
-                eval_resp = self.model.chat(prompt=eval_prompt, system_prompt=self.system_prompt)
-                return eval_resp.content
-            else:
-                # If no function call, treat as direct response
-                return resp.content
-
+            # Get the evaluation from the LLM
+            eval_resp = self.model.chat(prompt=eval_prompt, system_prompt=self.system_prompt)
+            evaluation_result = eval_resp.content.strip()
+            
+            print(f"Evaluation result: {evaluation_result}")
+            return evaluation_result
+            
         except Exception as e:
             print(f"Error during Evaluator LLM interaction: {e}")
             return f"Error: LLM interaction failed during evaluation: {e}"
