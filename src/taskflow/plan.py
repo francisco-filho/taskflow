@@ -1,7 +1,6 @@
 import json
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
-from pydantic import BaseModel, Field
 
 from taskflow.agents import Agent
 from taskflow.llm import LLMClient
@@ -159,8 +158,10 @@ Guidelines:
 - Each step should have a clear purpose and specify what context it needs from previous steps
 - Consider dependencies between steps (e.g., you need to generate code before you can commit it)
 - Be specific about what each agent should do and what input it needs
+- Do not add agents that do not contribute with the user goal
 
 Examples of tasks that need planning:
+- "Propose a commit message" (1 step: Generate commit message)
 - "Generate a commit message and then commit the changes" (2 steps: generate message, then commit)
 - "Review the code, make changes, then commit" (3 steps: review, modify, commit)
 - "Analyze the diff and create a detailed report" (might need 1 or 2 steps depending on complexity)

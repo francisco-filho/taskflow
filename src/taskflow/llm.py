@@ -14,7 +14,7 @@ def get_client(model: str = ""):
 
     if model == "default":
         return OllamaClient()
-    elif model in ["deepseek-r1:8b", "qwen2.5-coder:14b", "devstral:24b"]:
+    elif model in ["deepseek-r1:8b", "deepseek-r1:14b", "qwen2.5-coder:14b", "qwen3:14b"]:
         return OllamaClient(model_name=model)
     elif model.startswith("gemini"):
         return GeminiClient(model)
@@ -200,7 +200,9 @@ class OllamaClient(LLMClient):
         messages.append({"role": "user", "content": prompt})
 
         try:
-            options = {}
+            options = {
+                "temperature": 0 
+            }
             
             # function calling
             if tools and len(tools) > 0:
