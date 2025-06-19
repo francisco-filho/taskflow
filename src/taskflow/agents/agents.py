@@ -201,7 +201,7 @@ And the following git diff:
 {diff_result}
 ```
 
-Generate a commit message in the specified JSON format with a message and a detailed list of changes. Without bullet points"""
+Generate a commit message in the specified JSON format with a message and a detailed list of changes"""
 
         try:
             # Generate commit message
