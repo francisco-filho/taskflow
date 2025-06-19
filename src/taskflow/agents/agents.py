@@ -37,7 +37,7 @@ class Agent(ABC):
         """
         pass
 
-    def _execute_function_call(self, function_call) -> str:
+    def _execute_function_call(self, function_call):
         """
         Executes a function call returned by the LLM.
 
@@ -56,7 +56,7 @@ class Agent(ABC):
         try:
             print(f"Executing function: {function_name} with args: {function_args}")
             result = self.available_tools[function_name](**function_args)
-            return str(result)
+            return result
         except Exception as e:
             return f"Error executing function '{function_name}': {e}"
 
