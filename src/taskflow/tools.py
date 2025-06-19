@@ -10,24 +10,7 @@ from typing import List, Dict, Optional
 
 from taskflow.util import logger
 from taskflow.models import CommitMessage
-
-
-# Custom exceptions for ReadFileTool
-class FileDoesNotExistException(Exception):
-    """Raised when a file does not exist."""
-    pass
-
-class BinaryFileException(Exception):
-    """Raised when attempting to read a binary file as text."""
-    pass
-
-class FileReadPermissionException(Exception):
-    """Raised when permission is denied to read a file."""
-    pass
-
-class FileDecodingException(Exception):
-    """Raised when a file cannot be decoded as text."""
-    pass
+from taskflow.exceptions import FileReadPermissionException, BinaryFileException, FileDecodingException, FileDoesNotExistException
 
 
 class DiffTool:
@@ -303,20 +286,32 @@ class ListFilesTool():
             if name:
                 # Search for specific filename (first occurrence)
                 for file_path in project_path.rglob(name):
+                    if ".venv" in str(file_path):
+                        continue
                     if file_path.is_file():
-                        result.append({file_path.name: str(file_path)})
+                        print("*"*80)
+                        print(file_path)
+                        print("*"*80)
+                        
+                        result.append({'filename': str(file_path.name), 'path': str(file_path.absolute())})
                         break  # Return only first occurrence
             elif ext:
                 # Search for files with specific extension
                 pattern = f"*.{ext}" if not ext.startswith('.') else f"*{ext}"
                 for file_path in project_path.rglob(pattern):
+                    if ".venv" in str(file_path):
+                        continue
                     if file_path.is_file():
-                        result.append({file_path.name: str(file_path)})
+                        #result.append({file_path.name: str(file_path)})
+                        result.append({'filename': str(file_path.name), 'path': str(file_path)})
             else:
                 # List all files if no filter specified
                 for file_path in project_path.rglob("*"):
+                    if ".venv" in str(file_path):
+                        continue
                     if file_path.is_file():
-                        result.append({file_path.name: str(file_path)})
+                        result.append({'filename': str(file_path.name), 'path': str(file_path)})
+                        #result.append({file_path.name: str(file_path)})
             
             return result
             
