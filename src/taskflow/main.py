@@ -7,7 +7,8 @@ from dotenv import load_dotenv
 
 from taskflow.llm import get_client
 from taskflow.flow import Task, TaskFlow
-from taskflow.agents import DiffMessager, Commiter, Evaluator, Reviewer
+from taskflow.agents import Commiter, Evaluator, Reviewer
+from taskflow.agents.diff import DiffMessager
 from taskflow.tools import diff_tool, commit_tool
 from taskflow.mock import create_temp_git_repo
 
