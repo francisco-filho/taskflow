@@ -4,7 +4,6 @@ from taskflow.util import logger
 from taskflow.models import CommitMessage
 
 import git 
-import os
 from pathlib import Path
 from typing import List, Dict, Optional
 

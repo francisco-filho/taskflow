@@ -138,7 +138,7 @@ Propose a commit message for the staged changes in the project '{project_dir}' w
         doc_prompt = f"Generate technical documentation for the code files in the project '{project_dir}'. The file can be located in any sub-directory of the project, so do not assume is in the root of the project. "
         
         if file_name:
-            doc_prompt += f" focusing on the file named '{file_name}'"
+            doc_prompt += f" focusing on the following files ['{file_name}']"
         elif file_ext:
             doc_prompt += f" focusing on files with extension '{file_ext}'"
         else:
