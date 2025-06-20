@@ -5,6 +5,7 @@ from taskflow.util import logger
 from taskflow.llm import LLMClient
 from taskflow.models import UserNotApprovedException
 from taskflow.tools import DIFF_TOOL_SCHEMA, COMMIT_TOOL_SCHEMA
+from taskflow.exceptions import NoChangesStaged
 
 class Agent(ABC):
     """
@@ -56,6 +57,8 @@ class Agent(ABC):
             print(f"Executing function: {function_name} with args: {function_args}")
             result = self.available_tools[function_name](**function_args)
             return result
+        except NoChangesStaged as e:
+            raise
         except Exception as e:
             return f"Error executing function '{function_name}': {e}"
 

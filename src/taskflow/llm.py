@@ -304,12 +304,11 @@ If you don't need to call a function, respond normally with your answer.
                 duration=duration
             )
 
-
 class OpenAIClient(LLMClient):
     """
     Implementation of LLMClient for OpenAI models.
     """
-    def __init__(self, model_name: str = "gpt-4o-mini", api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(self, model_name: str = "gpt-4o", api_key: Optional[str] = None, base_url: Optional[str] = None, strict_mode: bool = True):
         """
         Initializes the OpenAI client.
 
@@ -317,10 +316,48 @@ class OpenAIClient(LLMClient):
             model_name: The name of the OpenAI model to use (e.g., "gpt-4o", "gpt-4o-mini", "o1-preview").
             api_key: Optional API key. If None, will use OPENAI_API_KEY environment variable.
             base_url: Optional base URL for OpenAI-compatible APIs (e.g., Azure OpenAI).
+            strict_mode: If True, uses strict JSON schema mode. If False, allows additional properties.
         """
         self.model_name = model_name
+        self.strict_mode = strict_mode
         self.client = OpenAI(api_key=api_key, base_url=base_url)
-        print(f"OpenAIClient initialized with model: {model_name}")
+        print(f"OpenAIClient initialized with model: {model_name}, strict_mode: {strict_mode}")
+
+    def _ensure_additional_properties_false(self, schema: Dict[str, Any]) -> None:
+        """
+        Recursively ensure all objects in the schema have additionalProperties set to false.
+        This is required for OpenAI's strict mode.
+        """
+        if isinstance(schema, dict):
+            if schema.get("type") == "object":
+                schema["additionalProperties"] = False
+            
+            # Recursively process nested schemas
+            for key, value in schema.items():
+                if isinstance(value, dict):
+                    self._ensure_additional_properties_false(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict):
+                            self._ensure_additional_properties_false(item)
+
+    def _ensure_additional_properties_true(self, schema: Dict[str, Any]) -> None:
+        """
+        Recursively ensure all objects in the schema have additionalProperties set to true.
+        This allows the model to return additional fields beyond the schema.
+        """
+        if isinstance(schema, dict):
+            if schema.get("type") == "object":
+                schema["additionalProperties"] = True
+            
+            # Recursively process nested schemas
+            for key, value in schema.items():
+                if isinstance(value, dict):
+                    self._ensure_additional_properties_true(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict):
+                            self._ensure_additional_properties_true(item)
 
     def chat(self, prompt: str, system_prompt: str = "", output=None, tools: Optional[List[Dict]] = None) -> ChatResponse:
         """
@@ -354,14 +391,30 @@ class OpenAIClient(LLMClient):
             
             # Add structured output if provided
             if output:
-                request_params["response_format"] = {
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "response",
-                        "schema": output.model_json_schema(),
-                        "strict": False
+                schema = output.model_json_schema()
+                
+                if self.strict_mode:
+                    # OpenAI requires additionalProperties to be false for strict mode
+                    self._ensure_additional_properties_false(schema)
+                    request_params["response_format"] = {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "response",
+                            "schema": schema,
+                            "strict": True
+                        }
                     }
-                }
+                else:
+                    # Non-strict mode allows additional properties
+                    self._ensure_additional_properties_true(schema)
+                    request_params["response_format"] = {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "response",
+                            "schema": schema,
+                            "strict": False
+                        }
+                    }
             
             # Add function calling if tools provided
             if tools and len(tools) > 0:

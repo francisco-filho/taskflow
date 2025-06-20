@@ -4,11 +4,13 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
+from taskflow.util import logger
 from taskflow.agents import Agent
 from taskflow.memory import PersistentMemory, EventType
 from taskflow.llm import LLMClient
 from taskflow.plan import Planner, PlanStep, ExecutionPlan
 from taskflow.models import Task
+from taskflow.exceptions import NoChangesStaged
 
 
 class TaskFlow:
@@ -302,8 +304,13 @@ Be specific about what is missing or what needs to be done."""
                 self.current_plan.advance_step()
                 self._update_memory_state(task.prompt)
                 
+            except NoChangesStaged as e:
+                logger.error(">>> <<<<")
+                logger.error(e)
+                exit(1)
             except Exception as e:
                 print(f"Error executing step {current_step.step_number}: {e}")
+                logger.error(">>> <<<<2")
                 
                 # Record step failure
                 self.memory.record_event(

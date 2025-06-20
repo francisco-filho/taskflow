@@ -7,6 +7,7 @@ from taskflow.llm import LLMClient
 from taskflow.models import CommitMessage
 from taskflow.tools import DIFF_TOOL_SCHEMA
 from taskflow.agents import Agent
+from taskflow.exceptions import NoChangesStaged
 
 class DiffMessager(Agent):
     """
@@ -64,6 +65,8 @@ class DiffMessager(Agent):
             print("✓ Commit message generated successfully!")
             return commit_message_data
 
+        except NoChangesStaged:
+            raise
         except Exception as e:
             print(f"Error during DiffMessager execution: {e}")
             return {
@@ -90,14 +93,16 @@ class DiffMessager(Agent):
             
             if resp.function_call and resp.function_call.name == "diff_tool":
                 diff_result = self._execute_function_call(resp.function_call)
-                logger.info(diff_result)
                 return diff_result
             else:
                 return "Error: Failed to get diff - no function call made"
                 
+        except NoChangesStaged as e:
+            logger.error(e)
+            raise
         except Exception as e:
             logger.error(e)
-            return f"Error: Failed to get diff - {e}"
+            raise
 
     def _generate_commit_message(self, original_prompt: str, diff_result: str) -> Dict[str, Any]:
         """

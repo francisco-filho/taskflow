@@ -14,3 +14,6 @@ class FileReadPermissionException(Exception):
 class FileDecodingException(Exception):
     """Raised when a file cannot be decoded as text."""
     pass
+
+class NoChangesStaged(Exception):
+    """Raised when there is no changes in project and the application try to diff-staged"""

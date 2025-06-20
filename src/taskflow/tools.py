@@ -9,7 +9,7 @@ from typing import List, Dict, Optional
 
 from taskflow.util import logger
 from taskflow.models import CommitMessage
-from taskflow.exceptions import FileReadPermissionException, BinaryFileException, FileDecodingException, FileDoesNotExistException
+from taskflow.exceptions import FileReadPermissionException, BinaryFileException, FileDecodingException, FileDoesNotExistException, NoChangesStaged
 
 
 class DiffTool:
@@ -37,13 +37,13 @@ class DiffTool:
                     diff_output = repo.git.diff('--cached')
                 else:
                     diff_output = repo.git.diff()
+
+
+                if not diff_output.strip():
+                    raise NoChangesStaged(">>> No changes detected in the repository.")
                 return diff_output
-            else:
-                return "No changes detected in the repository."
         except git.InvalidGitRepositoryError:
             return f"Error: '{project_dir}' is not a valid Git repository."
-        except Exception as e:
-            return f"An unexpected error occurred while generating diff: {e}"
     
     @staticmethod
     def get_schema() -> dict:
