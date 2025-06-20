@@ -6,6 +6,10 @@
 - [ ] Review diffs
     - Allow the user to specify requirements (ddd, ports-and-adapters...)
 - [x] Write a commit message
+- [ ] Agents
+    - [ ] Coder
+    - [ ] Architect
+    - [ ] QA
 
 ## Tools
 - [ ] Get diff from a source control system (gitlab)
