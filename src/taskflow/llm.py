@@ -3,9 +3,10 @@ import time
 from typing import Optional, List, Dict, Any
 from abc import ABC, abstractmethod
 
+import ollama
 from pydantic import BaseModel
 from google import genai
-import ollama
+from openai import OpenAI
 
 from taskflow.util import logger
 
@@ -18,6 +19,8 @@ def get_client(model: str = ""):
         return OllamaClient(model_name=model)
     elif model.startswith("gemini"):
         return GeminiClient(model)
+    elif model.startswith("gpt"):
+        return OpenAIClient(model)
     else:
         return OllamaClient()
 
@@ -293,6 +296,144 @@ If you don't need to call a function, respond normally with your answer.
             end_time = time.time()
             duration = int((end_time - start_time) * 1000)
             print(f"Error during Ollama chat: {e}")
+            return ChatResponse(
+                content=f"Error: {e}", 
+                function_call=None,
+                input_tokens=None,
+                output_tokens=None,
+                duration=duration
+            )
+
+
+class OpenAIClient(LLMClient):
+    """
+    Implementation of LLMClient for OpenAI models.
+    """
+    def __init__(self, model_name: str = "gpt-4o-mini", api_key: Optional[str] = None, base_url: Optional[str] = None):
+        """
+        Initializes the OpenAI client.
+
+        Parameters:
+            model_name: The name of the OpenAI model to use (e.g., "gpt-4o", "gpt-4o-mini", "o1-preview").
+            api_key: Optional API key. If None, will use OPENAI_API_KEY environment variable.
+            base_url: Optional base URL for OpenAI-compatible APIs (e.g., Azure OpenAI).
+        """
+        self.model_name = model_name
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        print(f"OpenAIClient initialized with model: {model_name}")
+
+    def chat(self, prompt: str, system_prompt: str = "", output=None, tools: Optional[List[Dict]] = None) -> ChatResponse:
+        """
+        Sends a chat prompt to the OpenAI model.
+
+        Parameters:
+            prompt: The user's prompt.
+            system_prompt: An optional system-level instruction for the model.
+            output: Optional output schema for structured responses.
+            tools: Optional list of tool schemas for function calling.
+
+        Returns:
+            A ChatResponse object containing the content and optional function call.
+        """
+        start_time = time.time()
+        
+        messages = []
+        
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        
+        messages.append({"role": "user", "content": prompt})
+
+        try:
+            # Prepare request parameters
+            request_params = {
+                "model": self.model_name,
+                "messages": messages,
+                "temperature": 0
+            }
+            
+            # Add structured output if provided
+            if output:
+                request_params["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "response",
+                        "schema": output.model_json_schema(),
+                        "strict": False
+                    }
+                }
+            
+            # Add function calling if tools provided
+            if tools and len(tools) > 0:
+                # Convert tool format to OpenAI format
+                openai_tools = []
+                for tool in tools:
+                    openai_tool = {
+                        "type": "function",
+                        "function": {
+                            "name": tool["name"],
+                            "description": tool.get("description", ""),
+                            "parameters": tool.get("parameters", {})
+                        }
+                    }
+                    openai_tools.append(openai_tool)
+                
+                request_params["tools"] = openai_tools
+                request_params["tool_choice"] = "auto"
+
+            logger.debug(f"--- openai call ---\n{messages}")
+            
+            response = self.client.chat.completions.create(**request_params)
+            
+            end_time = time.time()
+            duration = int((end_time - start_time) * 1000)  # Convert to milliseconds
+            
+            # Extract content and function call from the OpenAI response
+            content = ""
+            function_call = None
+            input_tokens = None
+            output_tokens = None
+            
+            if response.choices and len(response.choices) > 0:
+                message = response.choices[0].message
+                
+                # Extract text content
+                if message.content:
+                    content = message.content
+                
+                # Extract function call if present
+                if message.tool_calls and len(message.tool_calls) > 0:
+                    # Take the first tool call
+                    tool_call = message.tool_calls[0]
+                    if tool_call.type == "function":
+                        try:
+                            args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+                            function_call = FunctionCall(
+                                name=tool_call.function.name,
+                                args=args
+                            )
+                        except json.JSONDecodeError:
+                            logger.error(f"Failed to parse function arguments: {tool_call.function.arguments}")
+            
+            # Extract token usage from response
+            if response.usage:
+                input_tokens = response.usage.prompt_tokens
+                output_tokens = response.usage.completion_tokens
+            
+            resp = ChatResponse(
+                content=content, 
+                function_call=function_call,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                duration=duration
+            )
+            self.show_usage(resp)
+            return resp
+            
+        except Exception as e:
+            end_time = time.time()
+            duration = int((end_time - start_time) * 1000)
+            logger.error(f"Error during OpenAI chat: {e}")
             return ChatResponse(
                 content=f"Error: {e}", 
                 function_call=None,
