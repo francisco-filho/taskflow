@@ -117,6 +117,9 @@ def create_task(task_type, project_dir, needs_approval=False, needs_eval=False, 
             prompt=f"""
 Propose a commit message for the staged changes in the project '{project_dir}' with a evaluation
             """,
+#             prompt=f"""
+# Propose a commit message for the staged changes in the project 'https://github.com/francisco-filho/taskflow/pull/1' them make a evaluation of the commit message
+#             """,
             needs_approval=needs_approval,
             needs_eval=needs_eval,
             needs_plan=True
@@ -161,7 +164,8 @@ Propose a commit message for the staged changes in the project '{project_dir}' w
         return Task(
             prompt=doc_prompt,
             needs_approval=needs_approval,
-            needs_eval=needs_eval
+            needs_eval=needs_eval,
+            needs_plan=True
         )
     else:
         raise ValueError(f"Unknown task type: {task_type}")
@@ -185,7 +189,7 @@ INSTRUCTIONS:
 For commit message generation, respond ONLY in the JSON format (example):
 {"message": "Refactor GitReviewer for improved LLM integration and REPL functionality", "details": ["Introduced a `_get_config` method in `LLMGoogle` to centralize LLM calls.", "Refactored `main.py` to use a new `init_repl` function, streamlining the application's entry point and focusing on a REPL interface.", "Moved the `Message` Pydantic model to a dedicated `models.py`"]}
 """,
-        available_tools={'diff_tool': diff_tool}
+        available_tools={'diff_tool': diff_tool, 'github_pull_request_diff_tool': github_tool}
     )
 
     commiter_agent = Commiter(

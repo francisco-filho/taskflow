@@ -166,7 +166,11 @@ And the following git diff:
 {diff_result}
 ```
 
-Generate a commit message in the specified JSON format with a message and a detailed list of changes"""
+Generate a commit message in the specified JSON format with a message and small list of changes.
+Be very brief and prefer shorter lines.
+
+
+"""
 
         try:
             # Generate commit message
