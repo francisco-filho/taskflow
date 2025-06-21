@@ -7,7 +7,8 @@ from dotenv import load_dotenv
 
 from taskflow.llm import get_client
 from taskflow.flow import Task, TaskFlow
-from taskflow.agents import Commiter, Evaluator, Reviewer
+from taskflow.agents import Commiter, Evaluator
+from taskflow.agents.reviewer import Reviewer
 from taskflow.agents.diff import DiffMessager
 from taskflow.agents.techwritter import TechnicalWriter
 from taskflow.tools import diff_tool, commit_tool, list_files_tool, read_file_tool
@@ -115,7 +116,8 @@ def create_task(task_type, project_dir, needs_approval=False, needs_eval=False, 
 Propose a commit message for the staged changes in the project '{project_dir}' with a evaluation
             """,
             needs_approval=needs_approval,
-            needs_eval=needs_eval
+            needs_eval=needs_eval,
+            needs_plan=True
         )
     elif task_type == "review":
         return Task(
@@ -123,7 +125,8 @@ Propose a commit message for the staged changes in the project '{project_dir}' w
             Generate a concise REVIEW about changes in the project '{project_dir}'.
             """,
             needs_approval=needs_approval,
-            needs_eval=needs_eval
+            needs_eval=needs_eval,
+            needs_plan=True
         )
     elif task_type == "commit":
         return Task(
@@ -131,7 +134,8 @@ Propose a commit message for the staged changes in the project '{project_dir}' w
             Generate a commit message for the staged changes in the project '{project_dir}' and commit the changes. Do the commit.
             """,
             needs_approval=needs_approval,
-            needs_eval=False
+            needs_eval=False,
+            needs_plan=True
         )
     elif task_type == "doc":
         # Build documentation prompt based on file specifications

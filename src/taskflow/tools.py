@@ -1,9 +1,4 @@
 import git 
-
-from taskflow.util import logger
-from taskflow.models import CommitMessage
-
-import git 
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -92,9 +87,6 @@ class CommitTool:
         """
         try:
             repo = git.Repo(project_dir)
-            
-            #TODO: Check if there are staged changes
-            
             # Format the commit message
             m = CommitMessage(**message)
             formatted_message = m.message
