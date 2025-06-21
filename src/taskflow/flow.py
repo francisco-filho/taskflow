@@ -28,7 +28,7 @@ class TaskFlow:
             memory_file_path: Path to memory file. If provided and exists, will attempt to resume.
                             If None, starts fresh. If provided but doesn't exist, creates new file.
         """
-        self.memory = PersistentMemory(memory_file_path=memory_file_path, max_interaction_size=24)
+        self.memory = PersistentMemory(memory_file_path=None, max_interaction_size=24)
         self.orchestrator_model = model  # This LLM is used by TaskFlow for evaluation
         self.available_agents = []
         self.planner = Planner(model, self.available_agents)
@@ -175,12 +175,12 @@ Please consider the previous feedback when evaluating if the agent response addr
 Please evaluate if the agent response adequately fulfills the user's original task. 
 
 IMPORTANT EVALUATION CRITERIA:
-- If the user requested to "commit changes" or "commit the changes", the task is only complete if the response shows that changes were actually committed (e.g., contains "Successfully committed with hash:" or similar confirmation).
-- If the user requested to generate a commit message only, then generating the message is sufficient.
+- If the user requested to generate a commit message, then only generating the message is sufficient.
+- If the user requested to "commit the changes", the task is only complete if the response shows that changes were actually committed (e.g., contains "Successfully committed with hash:" or similar confirmation).
 - If the user requested a review, the task is complete if a review was provided.
 - If the user requested a diff, the task is complete if the diff output was provided.
 
-Respond with either:
+Respond exactly with either:
 1. "FULFILLED" if the task was completed successfully
 2. "NOT_FULFILLED: [specific reason why it wasn't fulfilled]" if the task was not completed
 
@@ -199,6 +199,9 @@ Be specific about what is missing or what needs to be done."""
                 message=evaluation_result
             )
             
+            print("="*80)
+            print(evaluation_result)
+            print("="*80)
             if evaluation_result.startswith("FULFILLED"):
                 return True, evaluation_result
             else:

@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from taskflow.util import logger
 from taskflow.llm import LLMClient
 from taskflow.models import UserNotApprovedException
-from taskflow.tools import DIFF_TOOL_SCHEMA, COMMIT_TOOL_SCHEMA
+from taskflow.tools import COMMIT_TOOL_SCHEMA
 from taskflow.exceptions import NoChangesStaged
 
 class Agent(ABC):
@@ -341,7 +341,7 @@ class Evaluator(Agent):
     def _get_tool_schemas(self) -> List[Dict]:
         """Returns the tool schemas available to the evaluator agent."""
         # The evaluator might need access to tools like diff_tool depending on the evaluation context
-        return [DIFF_TOOL_SCHEMA]
+        return []
 
     def _extract_user_request_and_response(self, prompt: str) -> tuple[str, str]:
         """
@@ -509,7 +509,7 @@ class Evaluator(Agent):
         additional_context = self._get_additional_context(evaluation_context)
         
         # Create the evaluation prompt
-        eval_prompt = f"""You are evaluating whether an agent's response fulfills a user's request.
+        eval_prompt = f"""You are evaluating whether an agent's response answers the user request.
 
 Original User Request:
 ```
@@ -522,22 +522,26 @@ Agent's Response:
 ```
 {additional_context}
 
-Evaluate whether the agent's response adequately fulfills the user's original request the only exception is if the user 'asks for evaluation', because this is your job
+Evaluate whether the agent's response adequately fulfills the user's original request. Do not take in consideration the user's request for evaluation.
 
 IMPORTANT EVALUATION CRITERIA:
+- If the only problem with the previous agent's response is that it does not include evaluation, accept as fulfilled
+- If the user requested a evaluation, do the evaluation NOW, do not reject the 'agent_response' if it does not include a evaluation
+- You should not reject a response because a lack of the previous agent evaluation, YOU will do the evaluation
 - Does the response directly address what the user asked for?
 - If the user requested an action (like committing changes), was the action actually performed?
 - If the user requested information (like a review or diff), was the information provided?
 - If the user requested generation of content (like a commit message), was the content generated?
 - Are there any obvious gaps between what was requested and what was delivered?
-- You should not reject a response because a lack of the previous agent evaluation, YOU will do the evaluation
-- The evaluation is your job
 
 Respond with either:
 1. "REQUEST FULFILLED\n\n{agent_response}" if the agent's response adequately addresses the user's request
-2. "REQUEST NOT FULFILLED: [specific reason]" if the request was not adequately fulfilled
+2. "REQUEST NOT FULFILLED: [specific reason]" if the request was not adequately fulfilled (ignore evaluation)
 
 Be specific about what is missing or what needs to be done if the request was not fulfilled."""
+        logger.info("-"*80)
+        logger.info(eval_prompt)
+        logger.info("-"*80)
 
         try:
             # Get the evaluation from the LLM
@@ -551,64 +555,3 @@ Be specific about what is missing or what needs to be done if the request was no
             print(f"Error during Evaluator LLM interaction: {e}")
             return f"Error: LLM interaction failed during evaluation: {e}"
 
-class Reviewer(Agent):
-    """
-    An agent responsible for generating a concise review of project changes.
-    """
-    def __init__(self, model: LLMClient, system_prompt: str, available_tools: Optional[Dict[str, Callable]] = None):
-        super().__init__("Reviewer", model, "Generates a concise review of code changes.", system_prompt, available_tools)
-
-    def _get_tool_schemas(self) -> List[Dict]:
-        """Returns the tool schemas available to the reviewer agent."""
-        return [DIFF_TOOL_SCHEMA]
-
-    def run(self, prompt: str, **kwargs) -> str:
-        """
-        Generates a review of project changes using function calling.
-
-        Parameters:
-            prompt: The user prompt containing the request and project information.
-            **kwargs: Additional keyword arguments (for compatibility).
-
-        Returns:
-            A string representing the review, or an error message.
-        """
-        print(f"Reviewer agent running with prompt: {prompt[:100]}...")
-
-        # Extract project directory from prompt
-        project_dir = self._extract_project_dir(prompt)
-        if not project_dir:
-            return "Error: Could not extract project directory from prompt. Please specify the project directory."
-
-        # Create a focused prompt for getting the diff
-        diff_prompt = f"Get the diff of staged changes for the project directory: {project_dir}"
-
-        try:
-            # First call with function calling enabled to get the diff
-            tools = self._get_tool_schemas()
-            resp = self.model.chat(prompt=diff_prompt, system_prompt=self.system_prompt, tools=tools)
-
-            # Check if the model wants to call a function
-            if resp.function_call:
-                function_result = self._execute_function_call(resp.function_call)
-
-                # Now ask for the review with the diff result and original context
-                review_prompt = f"""User request: "{prompt}"
-
-Git diff:
-```diff
-{function_result}
-```
-
-Generate a concise review of the changes based on the user's request and the diff shown above."""
-
-                # Second call to get the actual review
-                review_resp = self.model.chat(prompt=review_prompt, system_prompt=self.system_prompt)
-                return review_resp.content
-            else:
-                # If no function call, treat as direct response
-                return resp.content
-
-        except Exception as e:
-            print(f"Error during Reviewer LLM interaction: {e}")
-            return f"Error: LLM interaction failed during review generation: {e}"

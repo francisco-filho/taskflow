@@ -49,6 +49,8 @@ class TechnicalWriter(Agent):
 
 Please generate comprehensive technical documentation for the following code files. The documentation should:
 
+The first section should be small and tell how to use the functionality available in the file/class.
+
 1. Explain what each file does and its purpose
 2. Describe the main classes, functions, and their responsibilities
 3. Explain the overall architecture and how components interact

@@ -7,12 +7,17 @@ from dotenv import load_dotenv
 
 from taskflow.llm import get_client
 from taskflow.flow import Task, TaskFlow
-from taskflow.agents import Commiter, Evaluator, Reviewer
+from taskflow.agents import Commiter, Evaluator
+from taskflow.agents.reviewer import Reviewer
 from taskflow.agents.diff import DiffMessager
 from taskflow.agents.techwritter import TechnicalWriter
 from taskflow.tools import diff_tool, commit_tool, list_files_tool, read_file_tool
 from taskflow.mock import create_temp_git_repo
+from taskflow.tool.github_diff import GithubPullRequestDiffTool
+from taskflow.tool.gitlab_diff import GitlabMergeRequestDiffTool
 
+github_tool = GithubPullRequestDiffTool()
+gitlab_tool = GitlabMergeRequestDiffTool()
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -114,24 +119,35 @@ def create_task(task_type, project_dir, needs_approval=False, needs_eval=False, 
             prompt=f"""
 Propose a commit message for the staged changes in the project '{project_dir}' with a evaluation
             """,
+#             prompt=f"""
+# Propose a commit message for the staged changes in the project 'https://github.com/francisco-filho/taskflow/pull/1' them make a evaluation of the commit message
+#             """,
+#             prompt=f"""
+# Propose a commit message for the staged changes in the project 'https://gitlab.com/francisco-filho/test1/-/merge_requests/1'""",
             needs_approval=needs_approval,
-            needs_eval=needs_eval
+            needs_eval=True,
+            needs_plan=True
         )
     elif task_type == "review":
         return Task(
             prompt=f"""
             Generate a concise REVIEW about changes in the project '{project_dir}'.
             """,
+#             prompt=f"""
+# Generate a concise review about changes informed in the pull request 'https://github.com/francisco-filho/taskflow/pull/1'
+# """,
             needs_approval=needs_approval,
-            needs_eval=needs_eval
+            needs_eval=needs_eval,
+            needs_plan=True
         )
     elif task_type == "commit":
         return Task(
             prompt=f"""
-            Generate a commit message for the staged changes in the project '{project_dir}' and commit the changes. Do the commit.
+            Generate a commit message for the staged changes in the project '{project_dir}' and commit the changes. Commit the changes in the repository.
             """,
             needs_approval=needs_approval,
-            needs_eval=False
+            needs_eval=False,
+            needs_plan=True
         )
     elif task_type == "doc":
         # Build documentation prompt based on file specifications
@@ -152,7 +168,8 @@ Propose a commit message for the staged changes in the project '{project_dir}' w
         return Task(
             prompt=doc_prompt,
             needs_approval=needs_approval,
-            needs_eval=needs_eval
+            needs_eval=needs_eval,
+            needs_plan=True
         )
     else:
         raise ValueError(f"Unknown task type: {task_type}")
@@ -176,7 +193,10 @@ INSTRUCTIONS:
 For commit message generation, respond ONLY in the JSON format (example):
 {"message": "Refactor GitReviewer for improved LLM integration and REPL functionality", "details": ["Introduced a `_get_config` method in `LLMGoogle` to centralize LLM calls.", "Refactored `main.py` to use a new `init_repl` function, streamlining the application's entry point and focusing on a REPL interface.", "Moved the `Message` Pydantic model to a dedicated `models.py`"]}
 """,
-        available_tools={'diff_tool': diff_tool}
+        available_tools={'diff_tool': diff_tool, 
+                         'github_pull_request_diff_tool': github_tool,
+                         'gitlab_merge_request_diff_tool': gitlab_tool,
+                         }
     )
 
     commiter_agent = Commiter(
@@ -217,9 +237,9 @@ if the commit message has any problems respond with 'Bad commit message', two ne
         model=client,
         system_prompt="""
 You are a meticulous code reviewer. Your task is to provide a concise and constructive review of the given code changes, focusing on clarity, potential issues, and adherence to best practices. Summarize the key changes and any recommendations.
-You MUST use the `diff_tool` to get the staged changes in the project.
+If the diff was not provided by the user you MUST use a diff tool to get the staged changes in the project.
 """,
-        available_tools={'diff_tool': diff_tool}
+        available_tools={'diff_tool': diff_tool, 'github_pull_request_diff_tool': github_tool}
     )
 
     technical_writer_agent = TechnicalWriter(

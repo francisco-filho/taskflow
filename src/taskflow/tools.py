@@ -1,9 +1,4 @@
 import git 
-
-from taskflow.util import logger
-from taskflow.models import CommitMessage
-
-import git 
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -34,7 +29,7 @@ class DiffTool:
 
             if repo.is_dirty() or repo.untracked_files:
                 if only_staged:
-                    diff_output = repo.git.diff('--cached')
+                    diff_output = repo.git.diff('--cached', '-U10')
                 else:
                     diff_output = repo.git.diff()
 
@@ -45,8 +40,7 @@ class DiffTool:
         except git.InvalidGitRepositoryError:
             return f"Error: '{project_dir}' is not a valid Git repository."
     
-    @staticmethod
-    def get_schema() -> dict:
+    def get_schema(self) -> dict:
         """
         Returns the function schema for this tool.
         
@@ -92,9 +86,6 @@ class CommitTool:
         """
         try:
             repo = git.Repo(project_dir)
-            
-            #TODO: Check if there are staged changes
-            
             # Format the commit message
             m = CommitMessage(**message)
             formatted_message = m.message
@@ -359,7 +350,7 @@ list_files_tool = ListFilesTool()
 read_file_tool = ReadFileTool()
 
 # The old schema constants are now available through the class methods
-DIFF_TOOL_SCHEMA = DiffTool.get_schema()
+DIFF_TOOL_SCHEMA = diff_tool.get_schema()
 COMMIT_TOOL_SCHEMA = CommitTool.get_schema()
 LIST_FILES_TOOL_SCHEMA = ListFilesTool.get_schema()
 READ_FILE_TOOL_SCHEMA = ReadFileTool.get_schema()
