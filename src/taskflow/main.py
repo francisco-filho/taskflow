@@ -116,17 +116,16 @@ def create_task(task_type, project_dir, needs_approval=False, needs_eval=False, 
     """Create a task based on the task type."""
     if task_type == "diff":
         return Task(
-#             prompt=f"""
-# Propose a commit message for the staged changes in the project '{project_dir}' with a evaluation
-#             """,
+            prompt=f"""
+Propose a commit message for the staged changes in the project '{project_dir}' with a evaluation
+            """,
 #             prompt=f"""
 # Propose a commit message for the staged changes in the project 'https://github.com/francisco-filho/taskflow/pull/1' them make a evaluation of the commit message
 #             """,
-            prompt=f"""
-Propose a commit message for the staged changes in the project 'https://gitlab.com/francisco-filho/test1/-/merge_requests/1' them make a evaluation of the commit message
-            """,
+#             prompt=f"""
+# Propose a commit message for the staged changes in the project 'https://gitlab.com/francisco-filho/test1/-/merge_requests/1'""",
             needs_approval=needs_approval,
-            needs_eval=needs_eval,
+            needs_eval=True,
             needs_plan=True
         )
     elif task_type == "review":
@@ -144,7 +143,7 @@ Propose a commit message for the staged changes in the project 'https://gitlab.c
     elif task_type == "commit":
         return Task(
             prompt=f"""
-            Generate a commit message for the staged changes in the project '{project_dir}' and commit the changes. Do the commit.
+            Generate a commit message for the staged changes in the project '{project_dir}' and commit the changes. Commit the changes in the repository.
             """,
             needs_approval=needs_approval,
             needs_eval=False,

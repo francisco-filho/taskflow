@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from taskflow.util import logger
 from taskflow.llm import LLMClient
 from taskflow.models import UserNotApprovedException
-from taskflow.tools import DIFF_TOOL_SCHEMA, COMMIT_TOOL_SCHEMA
+from taskflow.tools import COMMIT_TOOL_SCHEMA
 from taskflow.exceptions import NoChangesStaged
 
 class Agent(ABC):
@@ -509,7 +509,7 @@ class Evaluator(Agent):
         additional_context = self._get_additional_context(evaluation_context)
         
         # Create the evaluation prompt
-        eval_prompt = f"""You are evaluating whether an agent's response fulfills a user's request.
+        eval_prompt = f"""You are evaluating whether an agent's response answers the user request.
 
 Original User Request:
 ```
@@ -522,11 +522,11 @@ Agent's Response:
 ```
 {additional_context}
 
-Evaluate whether the agent's response adequately fulfills the user's original request the only exception is if the user 'asks for evaluation', because this is your job.
+Evaluate whether the agent's response adequately fulfills the user's original request. Do not take in consideration the user's request for evaluation.
 
 IMPORTANT EVALUATION CRITERIA:
 - If the only problem with the previous agent's response is that it does not include evaluation, accept as fulfilled
-- If the user requested a evaluation, do the evaluation NOW, do not reject the {agent_response} if it does not include a evaluation
+- If the user requested a evaluation, do the evaluation NOW, do not reject the 'agent_response' if it does not include a evaluation
 - You should not reject a response because a lack of the previous agent evaluation, YOU will do the evaluation
 - Does the response directly address what the user asked for?
 - If the user requested an action (like committing changes), was the action actually performed?
@@ -536,9 +536,12 @@ IMPORTANT EVALUATION CRITERIA:
 
 Respond with either:
 1. "REQUEST FULFILLED\n\n{agent_response}" if the agent's response adequately addresses the user's request
-2. "REQUEST NOT FULFILLED: [specific reason]" if the request was not adequately fulfilled
+2. "REQUEST NOT FULFILLED: [specific reason]" if the request was not adequately fulfilled (ignore evaluation)
 
 Be specific about what is missing or what needs to be done if the request was not fulfilled."""
+        logger.info("-"*80)
+        logger.info(eval_prompt)
+        logger.info("-"*80)
 
         try:
             # Get the evaluation from the LLM
