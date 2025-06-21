@@ -13,7 +13,9 @@ from taskflow.agents.diff import DiffMessager
 from taskflow.agents.techwritter import TechnicalWriter
 from taskflow.tools import diff_tool, commit_tool, list_files_tool, read_file_tool
 from taskflow.mock import create_temp_git_repo
+from taskflow.tool.github_diff import GithubPullRequestDiffTool
 
+github_tool = GithubPullRequestDiffTool()
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -124,6 +126,9 @@ Propose a commit message for the staged changes in the project '{project_dir}' w
             prompt=f"""
             Generate a concise REVIEW about changes in the project '{project_dir}'.
             """,
+#             prompt=f"""
+# Generate a concise review about changes informed in the pull request 'https://github.com/francisco-filho/taskflow/pull/1'
+# """,
             needs_approval=needs_approval,
             needs_eval=needs_eval,
             needs_plan=True
@@ -221,9 +226,9 @@ if the commit message has any problems respond with 'Bad commit message', two ne
         model=client,
         system_prompt="""
 You are a meticulous code reviewer. Your task is to provide a concise and constructive review of the given code changes, focusing on clarity, potential issues, and adherence to best practices. Summarize the key changes and any recommendations.
-You MUST use the `diff_tool` to get the staged changes in the project.
+If the diff was not provided by the user you MUST use a diff tool to get the staged changes in the project.
 """,
-        available_tools={'diff_tool': diff_tool}
+        available_tools={'diff_tool': diff_tool, 'github_pull_request_diff_tool': github_tool}
     )
 
     technical_writer_agent = TechnicalWriter(
