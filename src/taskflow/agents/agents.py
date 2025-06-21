@@ -341,7 +341,7 @@ class Evaluator(Agent):
     def _get_tool_schemas(self) -> List[Dict]:
         """Returns the tool schemas available to the evaluator agent."""
         # The evaluator might need access to tools like diff_tool depending on the evaluation context
-        return [DIFF_TOOL_SCHEMA]
+        return []
 
     def _extract_user_request_and_response(self, prompt: str) -> tuple[str, str]:
         """
@@ -522,16 +522,17 @@ Agent's Response:
 ```
 {additional_context}
 
-Evaluate whether the agent's response adequately fulfills the user's original request the only exception is if the user 'asks for evaluation', because this is your job
+Evaluate whether the agent's response adequately fulfills the user's original request the only exception is if the user 'asks for evaluation', because this is your job.
 
 IMPORTANT EVALUATION CRITERIA:
+- If the only problem with the previous agent's response is that it does not include evaluation, accept as fulfilled
+- If the user requested a evaluation, do the evaluation NOW, do not reject the {agent_response} if it does not include a evaluation
+- You should not reject a response because a lack of the previous agent evaluation, YOU will do the evaluation
 - Does the response directly address what the user asked for?
 - If the user requested an action (like committing changes), was the action actually performed?
 - If the user requested information (like a review or diff), was the information provided?
 - If the user requested generation of content (like a commit message), was the content generated?
 - Are there any obvious gaps between what was requested and what was delivered?
-- You should not reject a response because a lack of the previous agent evaluation, YOU will do the evaluation
-- The evaluation is your job
 
 Respond with either:
 1. "REQUEST FULFILLED\n\n{agent_response}" if the agent's response adequately addresses the user's request
