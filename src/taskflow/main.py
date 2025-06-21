@@ -14,8 +14,10 @@ from taskflow.agents.techwritter import TechnicalWriter
 from taskflow.tools import diff_tool, commit_tool, list_files_tool, read_file_tool
 from taskflow.mock import create_temp_git_repo
 from taskflow.tool.github_diff import GithubPullRequestDiffTool
+from taskflow.tool.gitlab_diff import GitlabMergeRequestDiffTool
 
 github_tool = GithubPullRequestDiffTool()
+gitlab_tool = GitlabMergeRequestDiffTool()
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -114,12 +116,15 @@ def create_task(task_type, project_dir, needs_approval=False, needs_eval=False, 
     """Create a task based on the task type."""
     if task_type == "diff":
         return Task(
-            prompt=f"""
-Propose a commit message for the staged changes in the project '{project_dir}' with a evaluation
-            """,
+#             prompt=f"""
+# Propose a commit message for the staged changes in the project '{project_dir}' with a evaluation
+#             """,
 #             prompt=f"""
 # Propose a commit message for the staged changes in the project 'https://github.com/francisco-filho/taskflow/pull/1' them make a evaluation of the commit message
 #             """,
+            prompt=f"""
+Propose a commit message for the staged changes in the project 'https://gitlab.com/francisco-filho/test1/-/merge_requests/1' them make a evaluation of the commit message
+            """,
             needs_approval=needs_approval,
             needs_eval=needs_eval,
             needs_plan=True
@@ -189,7 +194,10 @@ INSTRUCTIONS:
 For commit message generation, respond ONLY in the JSON format (example):
 {"message": "Refactor GitReviewer for improved LLM integration and REPL functionality", "details": ["Introduced a `_get_config` method in `LLMGoogle` to centralize LLM calls.", "Refactored `main.py` to use a new `init_repl` function, streamlining the application's entry point and focusing on a REPL interface.", "Moved the `Message` Pydantic model to a dedicated `models.py`"]}
 """,
-        available_tools={'diff_tool': diff_tool, 'github_pull_request_diff_tool': github_tool}
+        available_tools={'diff_tool': diff_tool, 
+                         'github_pull_request_diff_tool': github_tool,
+                         'gitlab_merge_request_diff_tool': gitlab_tool,
+                         }
     )
 
     commiter_agent = Commiter(
