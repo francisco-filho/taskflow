@@ -109,8 +109,7 @@ class CommitTool:
         except Exception as e:
             return f"An unexpected error occurred while committing: {e}"
     
-    @staticmethod
-    def get_schema() -> dict:
+    def get_schema(self) -> dict:
         """
         Returns the function schema for this tool.
         
@@ -351,6 +350,6 @@ read_file_tool = ReadFileTool()
 
 # The old schema constants are now available through the class methods
 DIFF_TOOL_SCHEMA = diff_tool.get_schema()
-COMMIT_TOOL_SCHEMA = CommitTool.get_schema()
+COMMIT_TOOL_SCHEMA = commit_tool.get_schema()
 LIST_FILES_TOOL_SCHEMA = ListFilesTool.get_schema()
 READ_FILE_TOOL_SCHEMA = ReadFileTool.get_schema()

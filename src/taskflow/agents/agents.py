@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 from taskflow.util import logger
 from taskflow.llm import LLMClient
 from taskflow.models import UserNotApprovedException
-from taskflow.tools import COMMIT_TOOL_SCHEMA
 from taskflow.exceptions import NoChangesStaged
 
 class Agent(ABC):
@@ -67,7 +66,9 @@ class Agent(ABC):
         Returns the tool schemas for function calling.
         This should be overridden by subclasses to provide specific tool schemas.
         """
-        return []
+        if not self.available_tools:
+            return []
+        return [tool.get_schema() for tool in self.available_tools.values()]
 
     def _extract_project_dir(self, prompt: str) -> str:
         """
@@ -105,7 +106,9 @@ class Commiter(Agent):
 
     def _get_tool_schemas(self) -> List[Dict]:
         """Returns the tool schemas available to the commiter agent."""
-        return [COMMIT_TOOL_SCHEMA]
+        if not self.available_tools:
+            return []
+        return [tool.get_schema() for tool in self.available_tools.values()]
 
     def _extract_commit_message(self, prompt: str) -> str:
         """

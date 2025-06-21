@@ -199,9 +199,6 @@ Be specific about what is missing or what needs to be done."""
                 message=evaluation_result
             )
             
-            print("="*80)
-            print(evaluation_result)
-            print("="*80)
             if evaluation_result.startswith("FULFILLED"):
                 return True, evaluation_result
             else:
