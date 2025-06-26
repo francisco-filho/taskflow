@@ -15,7 +15,7 @@ def get_client(model: str = ""):
 
     if model == "default":
         return OllamaClient()
-    elif model in ["deepseek-r1:8b", "deepseek-r1:14b", "qwen2.5-coder:14b", "qwen:14b", "qwen3:14b", "qwen:8b"]:
+    elif model in ["deepseek-r1:8b", "deepseek-r1:14b", "qwen2.5-coder:14b", "qwen:14b", "qwen3:14b", "qwen:8b", "qwen3", "gemma3:4b", "gemma3:12b"]:
         return OllamaClient(model_name=model)
     elif model.startswith("gemini"):
         return GeminiClient(model)

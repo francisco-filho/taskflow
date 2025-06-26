@@ -24,12 +24,13 @@ class DiffMessager(Agent):
 
     def run(self, prompt: str, **kwargs) -> Dict[str, Any]:
         """
-        Generates a commit message based on staged changes.
+        Generates a commit message based on diff changes.
         
         The agent will:
         1. Check if diff is already provided in the prompt
         2. If not, get the diff of staged changes using available tools
-        3. Generate an appropriate commit message based on the changes
+        3. If the user asks to create message for remote repo, use available tools
+        4. Generate an appropriate commit message based on the changes
         
         Parameters:
             prompt: The user prompt containing the request and project information.
