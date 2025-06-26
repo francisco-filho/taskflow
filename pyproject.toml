@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "Francisco Filho", email = "francisco@capimgrosso.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
     "gitpython>=3.1.44",
     "google-genai>=1.20.0",
@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-taskflow = "taskflow:main"
+taskflow = "taskflow.main:main"
 
 [build-system]
 requires = ["hatchling"]
