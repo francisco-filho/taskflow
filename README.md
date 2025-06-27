@@ -1,10 +1,11 @@
 # Taskflow
 
 ## Agents
-- [ ] Plan work
+- [x] Plan work
 - [ ] Document code (classes and functions)
 - [ ] Review diffs
-    - Allow the user to specify requirements (ddd, ports-and-adapters...)
+    - [x] Simple diff
+    - [ ] Allow the user to specify requirements (ddd, ports-and-adapters...)
 - [x] Write a commit message
 - [ ] Agents
     - [ ] Coder
@@ -12,13 +13,16 @@
     - [ ] QA
 
 ## Tools
-- [ ] Get diff from a source control system (gitlab)
+- [x] Get diff from a source control system (gitlab)
+- [x] Get diff from a source control system (github)
+- [ ] Approve merge request in gitlab
 - [ ] Internet search
 - [ ] Wikipedia
-- [ ] CodeGraph
+- [ ] CodeGraph (stractor)
     - [ ] Structure
 
 ## TODO
+- [ ] Allow the prompt to be passed in the terminal
 - [ ] Improve the memory to allow reproducibility
     - [ ] Continue process in cases of failure
 - [ ] Extract the prompts from the code

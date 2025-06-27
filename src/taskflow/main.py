@@ -91,6 +91,12 @@ Examples:
         type=str,
         help="File extension to document (for doc task, e.g., 'py', 'js')"
     )
+
+    parser.add_argument(
+        "--prompt",
+        type=str,
+        help="Custom prompt to send to the agents for the task"
+    )
     
     return parser.parse_args()
 
@@ -112,9 +118,16 @@ def validate_project_directory(project_dir, require_git=True):
     
     return project_path.resolve()
 
-def create_task(task_type, project_dir, needs_approval=False, needs_eval=False, file_name=None, file_ext=None):
+def create_task(task_type, project_dir, needs_approval=False, needs_eval=False, file_name=None, file_ext=None, custom_prompt=None):
     """Create a task based on the task type."""
-    if task_type == "diff":
+    if custom_prompt:
+        return Task(
+            prompt=custom_prompt,
+            needs_approval=needs_approval,
+            needs_eval=needs_eval, # Assuming custom prompts might need evaluation
+            needs_plan=True # Assuming custom prompts might need planning
+        )
+    elif task_type == "diff":
         return Task(
             prompt=f"""
 Propose a commit message for the staged changes in the project '{project_dir}'""",
@@ -323,7 +336,8 @@ def main():
             args.needs_approval, 
             args.needs_eval,
             args.file_name,
-            args.file_ext
+            args.file_ext,
+            args.prompt
         )
         print(f"Created task: {args.task}")
     except ValueError as e:
