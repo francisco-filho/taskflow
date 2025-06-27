@@ -116,6 +116,8 @@ def create_task(task_type, project_dir, needs_approval=False, needs_eval=False, 
     """Create a task based on the task type."""
     if task_type == "diff":
         return Task(
+            prompt=f"""
+Propose a commit message for the staged changes in the project '{project_dir}'""",
 #             prompt=f"""
 # Propose a commit message for the staged changes in the project '{project_dir}'
 #             """,
@@ -123,6 +125,8 @@ def create_task(task_type, project_dir, needs_approval=False, needs_eval=False, 
 Propose a commit message for the staged changes in the project 'https://github.com/francisco-filho/taskflow/pull/1'""",
 #             prompt=f"""
 # Propose a commit message for the staged changes in the project 'https://gitlab.com/francisco-filho/test1/-/merge_requests/1'""",
+#             prompt=f"""
+# Propose a commit message for the staged changes in the project 'https://gitlab.com/testgenai/ai/test1/-/commit/8ca41ebb29d64ad1e0da2c6a6bfdab3377d00e0d'""",
             needs_approval=needs_approval,
             needs_eval=True,
             needs_plan=True

@@ -25,9 +25,6 @@ class GitlabMergeRequestDiffTool:
         """
         try:
             # Validate project format (can be owner/project or numeric ID)
-            if isinstance(project, str) and '/' in project and project.count('/') != 1:
-                return f"Error: Invalid project format. Expected 'owner/project' or project ID, got '{project}'"
-            
             # URL encode the project name for API usage
             if isinstance(project, str) and '/' in project:
                 project_encoded = project.replace('/', '%2F')
