@@ -78,27 +78,27 @@ class Agent(ABC):
         project_dir_match = prompt.split("project '")
         if len(project_dir_match) > 1:
             return project_dir_match[1].split("'")[0]
-        
+
         # Alternative patterns to match
         if "project directory:" in prompt.lower():
             parts = prompt.lower().split("project directory:")
             if len(parts) > 1:
                 return parts[1].strip().split()[0]
-        
+
         if "in " in prompt and ("/" in prompt or "\\" in prompt):
             # Try to find path-like strings
             words = prompt.split()
             for word in words:
                 if "/" in word or "\\" in word:
                     return word.strip(".,!?")
-        
+
         return ""
 
 
 class Commiter(Agent):
     """
     An agent responsible for committing changes to a git repository.
-    This agent expects to receive a commit message and performs the actual commit operation.
+    This agent uses the LLM to decide what action to take based on the user prompt.
     """
 
     def __init__(self, model: LLMClient, system_prompt: str, available_tools: Optional[Dict[str, Callable]] = None):
@@ -110,228 +110,100 @@ class Commiter(Agent):
             return []
         return [tool.get_schema() for tool in self.available_tools.values()]
 
-    def _extract_commit_message(self, prompt: str) -> str:
-        """
-        Extracts the commit message from the prompt, including both message and details.
-        
-        Parameters:
-            prompt: The prompt containing the commit message.
-            
-        Returns:
-            The extracted commit message formatted with details.
-        """
-        # First try to parse as JSON (from DiffMessager output)
-        try:
-            import json
-            import re
-            
-            # Look for JSON-like structure in the prompt
-            json_pattern = r'\{[^{}]*"message"[^{}]*"details"[^{}]*\}'
-            json_matches = re.findall(json_pattern, prompt, re.DOTALL)
-            
-            for json_str in json_matches:
-                try:
-                    commit_data = json.loads(json_str)
-                    if isinstance(commit_data, dict) and "message" in commit_data:
-                        message = commit_data["message"]
-                        details = commit_data.get("details", [])
-                        
-                        if details:
-                            # Format message with details
-                            formatted_message = message
-                            if not message.endswith('\n'):
-                                formatted_message += '\n'
-                            formatted_message += '\n' + '\n'.join([f"{detail}" for detail in details])
-                            return formatted_message
-                        else:
-                            return message
-                except json.JSONDecodeError:
-                    continue
-                    
-            # If we find a larger JSON block, try to parse it
-            json_block_pattern = r'\{.*?"message".*?"details".*?\}'
-            json_blocks = re.findall(json_block_pattern, prompt, re.DOTALL)
-            
-            for json_block in json_blocks:
-                try:
-                    commit_data = json.loads(json_block)
-                    if isinstance(commit_data, dict) and "message" in commit_data:
-                        message = commit_data["message"]
-                        details = commit_data.get("details", [])
-                        
-                        if details:
-                            # Format message with details
-                            formatted_message = message
-                            if not message.endswith('\n'):
-                                formatted_message += '\n'
-                            formatted_message += '\n' + '\n'.join([f"• {detail}" for detail in details])
-                            return formatted_message
-                        else:
-                            return message
-                except json.JSONDecodeError:
-                    continue
-                    
-        except Exception:
-            pass
-        
-        # Fallback to original extraction patterns for simple messages
-        patterns = [
-            'commit message: "',
-            'commit message:"',
-            'message: "',
-            'message:"',
-            '"message":',
-            'commit with message "',
-            'commit: "',
-        ]
-        
-        prompt_lower = prompt.lower()
-        
-        for pattern in patterns:
-            if pattern in prompt_lower:
-                start_idx = prompt_lower.find(pattern) + len(pattern)
-                if pattern.endswith('"'):
-                    # Find the closing quote
-                    end_idx = prompt.find('"', start_idx)
-                    if end_idx != -1:
-                        return prompt[start_idx:end_idx].strip()
-                else:
-                    # Extract until end of line or sentence
-                    rest = prompt[start_idx:].strip()
-                    if rest.startswith('"'):
-                        # Remove opening quote and find closing quote
-                        rest = rest[1:]
-                        end_idx = rest.find('"')
-                        if end_idx != -1:
-                            return rest[:end_idx].strip()
-                    else:
-                        # Take until newline or period
-                        for end_char in ['\n', '.', '!', '?']:
-                            end_idx = rest.find(end_char)
-                            if end_idx != -1:
-                                return rest[:end_idx].strip()
-                        return rest.strip()
-        
-        # If no specific pattern found, try to extract JSON-like message
-        try:
-            if '"message"' in prompt:
-                start = prompt.find('"message"')
-                colon_idx = prompt.find(':', start)
-                if colon_idx != -1:
-                    rest = prompt[colon_idx + 1:].strip()
-                    if rest.startswith('"'):
-                        rest = rest[1:]
-                        end_idx = rest.find('"')
-                        if end_idx != -1:
-                            return rest[:end_idx].strip()
-        except:
-            pass
-        
-        return ""
-
     def run(self, prompt: str, **kwargs) -> Dict[str, Any]:
         """
-        Commits changes using the provided commit message.
+        Processes the user prompt and decides what action to take using the LLM.
         
         The agent will:
-        1. Extract the commit message from the prompt
-        2. Extract the project directory
-        3. Perform the commit using the commit tool
+        1. Pass the user prompt to the LLM
+        2. Let the LLM decide what tool to call (if any)
+        3. Execute the tool if a function call is made
+        4. Return the result
         
         Parameters:
-            prompt: The user prompt containing the commit message and project information.
+            prompt: The user prompt that may contain commit instructions.
             **kwargs: Additional keyword arguments (for compatibility).
 
         Returns:
-            A dictionary containing the commit result.
+            A dictionary containing the result of the operation.
         """
         print(f"Commiter agent running with prompt: {prompt[:100]}...")
 
-        project_dir = self._extract_project_dir(prompt)
-        if not project_dir:
-            return {
-                "message": "Error: Could not extract project directory from prompt", 
-                "details": ["Please specify the project directory in your prompt"],
-                "error": True
-            }
-
-        commit_message = self._extract_commit_message(prompt)
-        if not commit_message:
-            return {
-                "message": "Error: Could not extract commit message from prompt", 
-                "details": ["Please provide a commit message in your prompt"],
-                "error": True
-            }
-
-        print(f"Extracted commit message: {commit_message}")
-        print(f"Project directory: {project_dir}")
-
         try:
-            # Perform the commit
-            # Try to generalize this to all agents
-            approval = input(f"\n{'-'*80}\n{commit_message}\n{'-'*80}\n\nCan i commit the stagged changes with this message? [y/N] ")
-            if "y" == approval.strip():
-                commit_result = self._perform_commit(project_dir, commit_message)
-            else:
-                raise UserNotApprovedException("User did not approve the message")
+            # Let the LLM decide what to do with the prompt
+            tools = self._get_tool_schemas()
+            resp = self.model.chat(prompt=prompt, system_prompt=self.system_prompt, tools=tools)
             
-            if "Successfully committed" in commit_result:
-                print("✓ Changes committed successfully!")
+            logger.info("-"*50)
+            logger.info(f"LLM Response: {resp}")
+            logger.info("-"*50)
+            
+            # If the LLM decided to call a function, execute it
+            if resp.function_call:
+                print(f"LLM decided to call function: {resp.function_call.name}")
+                
+                # Handle commit operations with user approval
+                if resp.function_call.name == "commit_tool":
+                    # Extract commit message from function arguments for approval
+                    commit_message = resp.function_call.args.get("message", "No commit message provided")
+                    
+                    # Ask for user approval
+                    approval = input(f"\n{'-'*80}\n{commit_message}\n{'-'*80}\n\nCan I commit the staged changes with this message? [y/N] ")
+                    if approval.strip().lower() != "y":
+                        raise UserNotApprovedException("User did not approve the commit")
+                
+                # Execute the function call
+                result = self._execute_function_call(resp.function_call)
+                
+                # Format the response based on the function called
+                if resp.function_call.name == "commit_tool":
+                    if "Successfully committed" in str(result):
+                        print("✓ Changes committed successfully!")
+                        return {
+                            "message": resp.function_call.args.get("message", ""),
+                            "commit_result": result,
+                            "committed": True,
+                            "error": False
+                        }
+                    else:
+                        print("✗ Commit failed")
+                        return {
+                            "message": resp.function_call.args.get("message", ""),
+                            "commit_result": result,
+                            "committed": False,
+                            "error": True
+                        }
+                else:
+                    # For other tools, return the result directly
+                    return {
+                        "message": f"Executed {resp.function_call.name}",
+                        "result": result,
+                        "error": False
+                    }
+            
+            # If no function call was made, return the LLM's text response
+            else:
+                print("LLM provided a text response without function calls")
                 return {
-                    "message": commit_message,
-                    "commit_result": commit_result,
-                    "committed": True,
+                    "message": resp.content,
                     "error": False
                 }
-            else:
-                print("✗ Commit failed")
-                return {
-                    "message": commit_message,
-                    "commit_result": commit_result,
-                    "committed": False,
-                    "error": True
-                }
 
+        except UserNotApprovedException as e:
+            print(f"Operation cancelled by user: {e}")
+            return {
+                "message": f"Operation cancelled: {e}",
+                "error": True
+            }
+        except NoChangesStaged as e:
+            print(f"No changes staged: {e}")
+            raise  # Re-raise this specific exception
         except Exception as e:
             print(f"Error during Commiter execution: {e}")
             return {
-                "message": f"Execution failed: {e}", 
-                "details": [],
+                "message": f"Execution failed: {e}",
                 "error": True
             }
-
-    def _perform_commit(self, project_dir: str, commit_message: str) -> str:
-        """
-        Performs the actual commit using the commit tool.
-        
-        Parameters:
-            project_dir: The project directory path.
-            commit_message: The commit message to use.
-            
-        Returns:
-            The result of the commit operation.
-        """
-        commit_prompt = f"""Commit the staged changes in project directory '{project_dir}' with the following commit message:
-
-"{commit_message}"
-
-Use the commit_tool to perform the actual commit."""
-
-        try:
-            tools = self._get_tool_schemas()
-            resp = self.model.chat(prompt=commit_prompt, system_prompt=self.system_prompt, tools=tools)
-            logger.info("-"*50)
-            logger.info(resp)
-            logger.info("-"*50)
-            
-            if resp.function_call and resp.function_call.name == "commit_tool":
-                commit_result = self._execute_function_call(resp.function_call)
-                return commit_result
-            else:
-                return "Error: Failed to commit - no function call made"
-                
-        except Exception as e:
-            return f"Error: Failed to commit - {e}"
 
 class Evaluator(Agent):
     """
