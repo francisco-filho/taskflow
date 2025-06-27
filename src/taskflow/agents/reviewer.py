@@ -21,11 +21,13 @@ class Reviewer(Agent):
 
     def run(self, prompt: str, **kwargs) -> str:
         """
-        Generates a review of project changes using available diff tools.
+        Generates a review of project changes, it can use:
+        - The 'diff' in the prompt, if available
+        - The available diff tools when the prompt does not contain diff changes.
         Delegates the prompt directly to the LLM to choose the appropriate tool and arguments.
 
         Parameters:
-            prompt: The user prompt containing the request and project information.
+            prompt: The user prompt containing the request, project information or diff changes.
             **kwargs: Additional keyword arguments (for compatibility).
 
         Returns:

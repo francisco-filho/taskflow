@@ -318,7 +318,7 @@ class ListFilesTool():
         """
         return {
             "name": "list_files_tool",
-            "description": "Lists files in the project directory, optionally filtered by name or extension",
+            "description": "Lists files in the project directory, optionally filtered by name or extension. This tool cannot be used in remote projects (gitlab, github)",
             "parameters": {
                 "type": "object",
                 "properties": {

@@ -255,7 +255,10 @@ if the commit message has any problems respond with 'Bad commit message', two ne
 You are a meticulous code reviewer. Your task is to provide a concise and constructive review of the given code changes, focusing on clarity, potential issues, and adherence to best practices. Summarize the key changes and any recommendations.
 If the diff was not provided by the user you MUST use a diff tool to get the staged changes in the project.
 """,
-        available_tools={'diff_tool': diff_tool, 'github_pull_request_diff_tool': github_tool}
+        available_tools={'diff_tool': diff_tool, 
+                         'github_pull_request_diff_tool': github_tool,
+                         'gitlab_merge_request_diff_tool': gitlab_tool,
+                         }
     )
 
     technical_writer_agent = TechnicalWriter(
