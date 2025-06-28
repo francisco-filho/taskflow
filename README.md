@@ -22,6 +22,10 @@
     - [ ] Structure
 
 ## TODO
+- [ ] Feedback
+    - [ ] Store prompts and outputs
+    - [ ] Store tools selection and outputs
+    - [ ] Gather user feedback
 - [ ] Allow the prompt to be passed in the terminal
 - [ ] Improve the memory to allow reproducibility
     - [ ] Continue process in cases of failure
