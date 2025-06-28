@@ -1,1 +1,1 @@
-from taskflow.agents.agents import Agent, Commiter, Evaluator
+from taskflow.agents.agents import Agent, Commiter
