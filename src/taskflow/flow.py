@@ -1,34 +1,27 @@
 import json
-from typing import Optional, List, Dict, Any
-from dataclasses import dataclass
-
-from pydantic import BaseModel, Field
+from typing import Optional, Dict, Any
 
 from taskflow.util import logger
 from taskflow.agents import Agent
-from taskflow.memory import PersistentMemory, EventType
 from taskflow.llm import LLMClient
 from taskflow.plan import Planner, PlanStep, ExecutionPlan
 from taskflow.models import Task
 from taskflow.exceptions import NoChangesStaged
+from taskflow.taskeval import TaskEvaluator
 
 
 class TaskFlow:
     """
-    Responsible for coordinating and executing tasks using agents,
-    maintaining its memory with persistence and resume capability.
+    Responsible for coordinating and executing tasks using agents
     """
     
-    def __init__(self, model: LLMClient, memory_file_path: Optional[str] = None):
+    def __init__(self, model: LLMClient):
         """
-        Initialize TaskFlow with optional memory file for resumption capability.
+        Initialize TaskFlow
         
         Args:
             model: LLM client for orchestration decisions
-            memory_file_path: Path to memory file. If provided and exists, will attempt to resume.
-                            If None, starts fresh. If provided but doesn't exist, creates new file.
         """
-        self.memory = PersistentMemory(memory_file_path=None, max_interaction_size=24)
         self.orchestrator_model = model  # This LLM is used by TaskFlow for evaluation
         self.available_agents = []
         self.planner = Planner(model, self.available_agents)
@@ -36,66 +29,11 @@ class TaskFlow:
         self.current_plan: Optional[ExecutionPlan] = None
         self.step_results: Dict[int, Any] = {}  # Store results from each step
         
-        # Check if we can resume from existing memory
-        if self.memory.can_resume():
-            print("Found existing incomplete task. Use check_resume_status() to see details.")
+        # Initialize the task evaluator
+        self.evaluator = TaskEvaluator(model)
         
         print("TaskFlow initialized.")
 
-    def check_resume_status(self) -> Optional[Dict[str, Any]]:
-        """
-        Check if there's a task that can be resumed and return its status.
-        
-        Returns:
-            Dictionary with resume information or None if nothing to resume
-        """
-        return self.memory.get_resume_info()
-
-    def resume_task(self, max_attempts: int = 10) -> bool:
-        """
-        Resume an incomplete task from memory.
-        
-        Args:
-            max_attempts: Maximum attempts for task completion
-            
-        Returns:
-            True if successfully resumed, False if no valid state to resume
-        """
-        if not self.memory.can_resume():
-            print("No valid task state to resume from.")
-            return False
-        
-        print("\n--- Resuming Task from Memory ---")
-        execution_state = self.memory.get_execution_state()
-        
-        # Restore the execution state
-        self.step_results = execution_state.step_results
-        self.final_response = execution_state.final_response
-        
-        # Recreate the execution plan
-        self.current_plan = ExecutionPlan.from_dict_list(execution_state.plan_steps)
-        self.current_plan.current_step = execution_state.current_step
-        
-        print(f"Resuming task: {execution_state.user_prompt}")
-        print(f"Completed steps: {list(self.step_results.keys())}")
-        print(f"Resuming from step: {execution_state.current_step + 1}")
-        
-        # Record resume event
-        self.memory.record_event(
-            EventType.SYSTEM_EVENT,
-            message=f"Resuming task from step {execution_state.current_step + 1}"
-        )
-        
-        # Create a task object for the resumed execution
-        task = Task(
-            prompt=execution_state.user_prompt,
-            needs_plan=True,  # Already have a plan
-            needs_approval=True,
-            needs_eval=True
-        )
-        
-        # Continue execution from current step
-        return self._continue_execution(task, max_attempts)
 
     def add(self, agent: Agent):
         """
@@ -142,106 +80,11 @@ class TaskFlow:
         
         return "\n\n".join(context_parts)
 
-
-    def _is_task_fulfilled(self, original_task: str, agent_response: str, feedback_context: str = "") -> tuple[bool, str]:
-        """
-        Evaluates if the original task was fulfilled by the agent response.
-        Updated to handle the new scoring system from the Evaluator agent.
-        
-        Parameters:
-            original_task: The original user task/prompt
-            agent_response: The response from the agent that handled the task
-            feedback_context: Any previous feedback that should be considered
-            
-        Returns:
-            A tuple of (is_fulfilled: bool, feedback_message: str)
-        """
-        evaluation_prompt = f"""Evaluate if the following user task was properly fulfilled by the agent response:
-
-Original Task:
-{original_task}
-
-Agent Response:
-{agent_response}"""
-
-        if feedback_context:
-            evaluation_prompt += f"""
-
-Previous Feedback Context:
-{feedback_context}
-
-Please consider the previous feedback when evaluating if the agent response addresses the concerns raised."""
-        
-        evaluation_prompt += """
-
-Please evaluate if the agent response adequately fulfills the user's original task. 
-
-IMPORTANT EVALUATION CRITERIA:
-- If the user requested to generate a commit message, then only generating the message is sufficient.
-- If the user requested to "commit the changes", the task is only complete if the response shows that changes were actually committed (e.g., contains "Successfully committed with hash:" or similar confirmation).
-- If the user requested a review, the task is complete if a review was provided.
-- If the user requested a diff, the task is complete if the diff output was provided.
-
-Rate the response on a scale of 1-5:
-1 = Poor: The response completely fails to address the user's request
-2 = Below Average: The response partially addresses the request but has significant gaps
-3 = Average: The response addresses most of the request but lacks some important elements
-4 = Good: The response addresses the request well with minor issues
-5 = Excellent: The response completely and accurately fulfills the user's request
-
-Respond with:
-Score: [1-5]
-[Detailed explanation of your evaluation]"""
-
-        print("Evaluating if task was fulfilled...")
-        try:
-            response = self.orchestrator_model.chat(prompt=evaluation_prompt)
-            evaluation_result = response.content.strip()
-            print(f"Evaluation result: {evaluation_result}")
-            
-            # Parse the score from the evaluation result
-            import re
-            score_patterns = [
-                r"(?:score|rating):\s*([1-5])",
-                r"([1-5])/5",
-                r"score\s+([1-5])",
-                r"rating\s+([1-5])",
-                r"^([1-5])\s*-",
-                r"^([1-5])\.",
-            ]
-            
-            score = 1  # Default score
-            for pattern in score_patterns:
-                match = re.search(pattern, evaluation_result, re.IGNORECASE | re.MULTILINE)
-                if match:
-                    try:
-                        score = int(match.group(1))
-                        break
-                    except ValueError:
-                        continue
-            
-            # Record evaluation with score
-            self.memory.record_event(
-                EventType.EVALUATION,
-                data={'evaluation_result': evaluation_result, 'score': score},
-                message=f"Task evaluation score: {score}/5"
-            )
-            
-            # Consider task fulfilled if score is 4 or 5
-            if score >= 4:
-                return True, f"Score: {score}/5 - {evaluation_result}"
-            else:
-                return False, f"Score: {score}/5 - {evaluation_result}"
-                
-        except Exception as e:
-            print(f"Error during task evaluation: {e}")
-            return False, f"Error during evaluation: {e}"
-
     def _continue_execution(self, task: Task, max_attempts: int = 10) -> bool:
         """
         Continue execution from the current step in the plan.
         Used both for normal execution and resumption.
-        Updated to handle the new Evaluator agent format.
+        Updated to use the TaskEvaluator for all evaluation logic.
         
         Returns:
             True if execution completed successfully, False otherwise
@@ -249,9 +92,6 @@ Score: [1-5]
         if not self.current_plan or not self.current_plan.steps:
             print("No execution plan available.")
             return False
-
-        # Update memory with current execution state
-        self._update_memory_state(task.prompt)
         
         overall_attempt = 0
         while not self.current_plan.is_complete() and overall_attempt < max_attempts:
@@ -264,40 +104,16 @@ Score: [1-5]
             print(f"\n--- Executing Step {current_step.step_number}: {current_step.agent_name} ---")
             print(f"Description: {current_step.description}")
             
-            # Record step start
-            self.memory.record_event(
-                EventType.STEP_STARTED,
-                step_number=current_step.step_number,
-                agent_name=current_step.agent_name,
-                message=current_step.description
-            )
-            
             # Get the agent for this step
             agent = self._get_agent_by_name(current_step.agent_name)
             if not agent:
                 print(f"Agent '{current_step.agent_name}' not found. Skipping step.")
-                self.memory.record_event(
-                    EventType.STEP_FAILED,
-                    step_number=current_step.step_number,
-                    agent_name=current_step.agent_name,
-                    message=f"Agent '{current_step.agent_name}' not found"
-                )
                 self.current_plan.advance_step()
-                self._update_memory_state(task.prompt)
                 continue
             
             # Build context for this step
             step_context = self._build_step_context(current_step, task.prompt)
             print(f"Step context length: {len(step_context)} characters")
-            
-            # Record agent input
-            self.memory.record_event(
-                EventType.AGENT_INPUT,
-                step_number=current_step.step_number,
-                agent_name=current_step.agent_name,
-                data={'context': step_context},
-                message=f"Sending context to {current_step.agent_name}"
-            )
             
             try:
                 # Execute the agent
@@ -314,48 +130,17 @@ Score: [1-5]
                 else:
                     print(f"Step {current_step.step_number} completed. Result:\n{result_str}")
                 
-                # Record agent output and step completion
-                self.memory.record_event(
-                    EventType.AGENT_OUTPUT,
-                    step_number=current_step.step_number,
-                    agent_name=current_step.agent_name,
-                    data={'result': result},
-                    message=f"Agent {current_step.agent_name} completed step {current_step.step_number}"
-                )
-                
-                self.memory.record_event(
-                    EventType.STEP_COMPLETED,
-                    step_number=current_step.step_number,
-                    agent_name=current_step.agent_name,
-                    message=f"Step {current_step.step_number} completed successfully"
-                )
-                
                 # Move to next step
                 self.current_plan.advance_step()
-                self._update_memory_state(task.prompt)
                 
             except NoChangesStaged as e:
-                logger.error(">>> <<<<")
                 logger.error(e)
                 exit(1)
             except Exception as e:
                 print(f"Error executing step {current_step.step_number}: {e}")
-                logger.error(">>> <<<<2")
-                
-                # Record step failure
-                self.memory.record_event(
-                    EventType.STEP_FAILED,
-                    step_number=current_step.step_number,
-                    agent_name=current_step.agent_name,
-                    data={'error': str(e)},
-                    message=f"Step {current_step.step_number} failed: {e}"
-                )
-                
-                # For now, skip failed steps. Could implement retry logic here.
                 self.current_plan.advance_step()
-                self._update_memory_state(task.prompt)
 
-        # Evaluate overall completion
+        # Evaluate overall completion using the TaskEvaluator
         if self.current_plan.is_complete():
             print("\n--- Plan Execution Complete ---")
             
@@ -371,147 +156,67 @@ Score: [1-5]
                         last_step = step
                         break
                 
-                # If the last step was an Evaluator, parse its response for the actual evaluation
+                # Handle evaluation based on whether the last step was an Evaluator agent
                 if last_step and last_step.agent_name.lower() == "evaluator":
+                    # Parse the Evaluator agent response
                     evaluator_response = str(self.final_response)
+                    evaluation_result = self.evaluator.parse_evaluator_agent_response(evaluator_response)
                     
-                    # Extract score from the evaluator response
-                    import re
-                    score_match = re.search(r"Evaluation score:\s*([1-5])", evaluator_response)
-                    score = int(score_match.group(1)) if score_match else 1
+                    print(f"✓ Evaluator completed with score: {evaluation_result.score}/5")
                     
-                    # Update memory with final state
-                    self._update_memory_state(task.prompt, is_complete=True)
-                    
-                    # Record the evaluation result
-                    self.memory.record_event(
-                        EventType.EVALUATION,
-                        data={'evaluation_result': evaluator_response, 'score': score},
-                        message=f"Evaluator completed with score: {score}/5"
-                    )
-                    
-                    # Consider task fulfilled if score is 4 or 5
-                    if score >= 4:
+                    if evaluation_result.is_fulfilled:
                         print("✓ Overall task was fulfilled successfully!")
-                        self.memory.record_event(
-                            EventType.TASK_COMPLETED,
-                            message=f"Task fulfilled with evaluation score: {score}/5"
-                        )
-                        
-                        if task.needs_approval:
-                            user_feedback = input("\nTask completed! Do you approve this result? (yes/no): ").lower().strip()
-                            self.memory.record_event(
-                                EventType.USER_APPROVAL,
-                                data={'approved': user_feedback == 'yes'},
-                                message=f"User approval: {user_feedback}"
-                            )
-                            if user_feedback == "yes":
-                                print("User approved. Task completed.")
-                                return True
-                            else:
-                                print("User did not approve. Task marked as incomplete.")
-                                return False
-                        else:
-                            print("Task completed successfully.")
-                            return True
+                        return self._handle_user_approval(task)
                     else:
-                        print(f"✗ Overall task evaluation score too low: {score}/5")
-                        self.memory.record_event(
-                            EventType.TASK_FAILED,
-                            message=f"Task scored low on evaluation: {score}/5"
-                        )
+                        print(f"✗ Overall task evaluation score too low: {evaluation_result.score}/5")
                         return False
                 else:
-                    # No evaluator was used, proceed with original evaluation logic
-                    # Update memory with final state
-                    self._update_memory_state(task.prompt, is_complete=True)
-                    
-                    # Evaluate if the overall task was fulfilled
+                    # Use TaskEvaluator for standard evaluation
                     if task.needs_eval:
                         final_result_str = json.dumps(self.final_response, indent=2) if isinstance(self.final_response, dict) else str(self.final_response)
-                        is_fulfilled, evaluation_message = self._is_task_fulfilled(task.prompt, final_result_str)
+                        evaluation_result = self.evaluator.evaluate(task.prompt, final_result_str)
                         
-                        if is_fulfilled:
+                        if evaluation_result.is_fulfilled:
                             print("✓ Overall task was fulfilled successfully!")
-                            self.memory.record_event(
-                                EventType.TASK_COMPLETED,
-                                message=f"Task fulfilled: {evaluation_message}"
-                            )
-                            
-                            if task.needs_approval:
-                                user_feedback = input("\nTask completed! Do you approve this result? (yes/no): ").lower().strip()
-                                self.memory.record_event(
-                                    EventType.USER_APPROVAL,
-                                    data={'approved': user_feedback == 'yes'},
-                                    message=f"User approval: {user_feedback}"
-                                )
-                                if user_feedback == "yes":
-                                    print("User approved. Task completed.")
-                                    return True
-                                else:
-                                    print("User did not approve. Task marked as incomplete.")
-                                    return False
-                            else:
-                                print("Task completed successfully.")
-                                return True
+                            return self._handle_user_approval(task)
                         else:
-                            print(f"✗ Overall task not fulfilled: {evaluation_message}")
-                            self.memory.record_event(
-                                EventType.TASK_FAILED,
-                                message=f"Task not fulfilled: {evaluation_message}"
-                            )
+                            print(f"✗ Overall task not fulfilled: {evaluation_result.feedback_message}")
                             return False
                     else:
                         print("Task execution completed (no evaluation requested).")
-                        self.memory.record_event(
-                            EventType.TASK_COMPLETED,
-                            message="Task execution completed without evaluation"
-                        )
-                        if task.needs_approval:
-                            user_feedback = input("\nDo you approve this result? (yes/no): ").lower().strip()
-                            self.memory.record_event(
-                                EventType.USER_APPROVAL,
-                                data={'approved': user_feedback == 'yes'},
-                                message=f"User approval: {user_feedback}"
-                            )
-                            if user_feedback == "yes":
-                                print("User approved. Task completed.")
-                                return True
-                            else:
-                                print("User did not approve.")
-                                return False
-                        return True
+                        return self._handle_user_approval(task, default_complete=True)
         else:
             print(f"\n--- Plan execution incomplete after {max_attempts} attempts ---")
-            self.memory.record_event(
-                EventType.TASK_FAILED,
-                message=f"Plan execution incomplete after {max_attempts} attempts"
-            )
             return False
 
-    def _update_memory_state(self, user_prompt: str, is_complete: bool = False):
-        """Update the execution state in memory"""
-        if self.current_plan:
-            self.memory.update_execution_state(
-                user_prompt=user_prompt,
-                plan_steps=self.current_plan.to_dict_list(),
-                current_step=self.current_plan.current_step,
-                step_results=self.step_results,
-                is_complete=is_complete,
-                final_response=self.final_response
-            )
+    def _handle_user_approval(self, task: Task, default_complete: bool = False) -> bool:
+        """
+        Handle user approval logic.
+        
+        Args:
+            task: The task being executed
+            default_complete: Whether to return True if no approval is needed
+            
+        Returns:
+            True if approved or no approval needed, False otherwise
+        """
+        if task.needs_approval:
+            user_feedback = input("\nTask completed! Do you approve this result? (yes/no): ").lower().strip()
+            if user_feedback == "yes":
+                print("User approved. Task completed.")
+                return True
+            else:
+                print("User did not approve. Task marked as incomplete.")
+                return False
+        else:
+            if default_complete:
+                print("Task completed successfully.")
+            return True
 
     def run(self, task: Task, max_attempts: int = 10):
         """
         Executes the task by creating and following an execution plan.
         """
-        # Record the start of a new task
-        self.memory.record_event(
-            EventType.USER_PROMPT,
-            data={'prompt': task.prompt, 'needs_plan': task.needs_plan, 'needs_approval': task.needs_approval, 'needs_eval': task.needs_eval},
-            message=f"Starting new task: {task.prompt}"
-        )
-        
         print(f"\n--- TaskFlow: Running task ---")
         print(f"{task.prompt}")
 
@@ -519,16 +224,6 @@ Score: [1-5]
         if task.needs_plan or self.planner.should_create_detailed_plan(task.prompt):
             print("\n--- Creating Detailed Execution Plan ---")
             self.current_plan = self.planner.create_execution_plan(task.prompt)
-            
-            # Record plan creation
-            self.memory.record_event(
-                EventType.PLAN_CREATED,
-                data={
-                    'plan_steps': self.current_plan.to_dict_list(),
-                    'reasoning': 'Detailed plan created by Planner'
-                },
-                message=f"Planner created plan with {len(self.current_plan.steps)} steps"
-            )
             
             # Log the plan
             if self.current_plan.steps:
@@ -539,13 +234,6 @@ Score: [1-5]
             print("\n--- Creating Simple Plan ---")
             self.current_plan = self.planner.create_execution_plan(task.prompt)
             
-            # Record simple plan creation
-            self.memory.record_event(
-                EventType.PLAN_CREATED,
-                data={'plan_steps': self.current_plan.to_dict_list()},
-                message=f"Planner created simple plan with {len(self.current_plan.steps)} steps"
-            )
-            
             if self.current_plan.steps:
                 selected_agent_name = self.current_plan.steps[0].agent_name
                 print(f"Created simple plan with 1 step: {selected_agent_name}")
@@ -554,10 +242,6 @@ Score: [1-5]
 
         if not self.current_plan or not self.current_plan.steps:
             print("Failed to create execution plan. No suitable agents found.")
-            self.memory.record_event(
-                EventType.TASK_FAILED,
-                message="Failed to create execution plan. No suitable agents found."
-            )
             return
 
         # Step 2: Execute the plan
@@ -573,14 +257,10 @@ Score: [1-5]
             return "No execution plan created yet."
         return self.current_plan.get_plan_summary()
     
-    def get_memory_summary(self) -> str:
-        """Get a summary of the memory state"""
-        return self.memory.get_summary()
+    def get_evaluator(self) -> TaskEvaluator:
+        """Get the task evaluator instance for advanced evaluation features."""
+        return self.evaluator
     
-    def clear_memory(self):
-        """Clear all memory (start fresh)"""
-        self.memory.clear_memory()
-        self.current_plan = None
-        self.step_results = {}
-        self.final_response = None
-        print("TaskFlow memory cleared. Ready for new task.")
+    def set_evaluation_threshold(self, threshold: int):
+        """Set the evaluation threshold for task fulfillment."""
+        self.evaluator.set_fulfillment_threshold(threshold)

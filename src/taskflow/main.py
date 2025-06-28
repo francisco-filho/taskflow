@@ -348,8 +348,7 @@ def main():
     diff_messager_agent, commiter_agent, evaluator_agent, reviewer_agent, technical_writer_agent = initialize_agents(client)
     
     # Create and configure the flow
-    memory_file = "./taskflow_memory.json"
-    flow = TaskFlow(model=client, memory_file_path=memory_file)
+    flow = TaskFlow(model=client)
     flow.add(diff_messager_agent)
     flow.add(commiter_agent)
     flow.add(evaluator_agent)
