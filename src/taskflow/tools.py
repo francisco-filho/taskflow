@@ -151,6 +151,7 @@ class CommitTool:
 class ReadFileTool:
     """
     A tool class for reading text/code files safely, avoiding binary files.
+    Supports reading single files or multiple files at once.
     """
     
     # Common binary file extensions to avoid
@@ -163,21 +164,51 @@ class ReadFileTool:
         '.pyc', '.pyo', '.class', '.o', '.obj'
     }
     
-    def __call__(self, file_path: str) -> str:
+    def __call__(self, file_paths: List[str]) -> Dict[str, str]:
         """
-        Reads a text/code file and returns its content as a string.
+        Reads one or more text/code files and returns their content as a dictionary.
 
         Parameters:
-            file_path: Absolute path to the file to read.
+            file_paths: List of absolute paths to files to read.
 
         Returns:
-            The file content as a string.
+            A dictionary with filename as key and file content as value.
             
         Raises:
-            FileDoesNotExistException: When the file does not exist.
-            BinaryFileException: When the file appears to be binary.
+            FileDoesNotExistException: When a file does not exist.
+            BinaryFileException: When a file appears to be binary.
             FileReadPermissionException: When permission is denied.
-            FileDecodingException: When the file cannot be decoded as text.
+            FileDecodingException: When a file cannot be decoded as text.
+        """
+        if not isinstance(file_paths, list):
+            raise ValueError("file_paths must be a list")
+        
+        if not file_paths:
+            raise ValueError("file_paths cannot be empty")
+        
+        result = {}
+        
+        for file_path in file_paths:
+            try:
+                content = self._read_single_file(file_path)
+                filename = Path(file_path).name
+                result[filename] = content
+            except Exception as e:
+                # Include error information in the result
+                filename = Path(file_path).name
+                result[filename] = f"Error reading file: {e}"
+        
+        return result
+    
+    def _read_single_file(self, file_path: str) -> str:
+        """
+        Reads a single file and returns its content.
+        
+        Parameters:
+            file_path: Absolute path to the file to read.
+            
+        Returns:
+            The file content as a string.
         """
         try:
             file_path_obj = Path(file_path)
@@ -222,6 +253,38 @@ class ReadFileTool:
         except Exception as e:
             raise Exception(f"An unexpected error occurred while reading '{file_path}': {e}")
     
+    def _read_multiple_files(self, file_paths: List[str]) -> str:
+        """
+        Reads multiple files and returns their content in the specified format.
+        
+        Parameters:
+            file_paths: List of absolute paths to files to read.
+            
+        Returns:
+            The formatted string containing all file contents.
+        """
+        result_parts = ["# =================================", "<files>"]
+        
+        for file_path in file_paths:
+            try:
+                content = self._read_single_file(file_path)
+                result_parts.append(f'<file path="{file_path}">')
+                result_parts.append(content)
+                result_parts.append("</file>")
+                result_parts.append("")  # Empty line between files
+                
+            except Exception as e:
+                # Include error information in the output
+                result_parts.append(f'<file path="{file_path}">')
+                result_parts.append(f"Error reading file: {e}")
+                result_parts.append("</file>")
+                result_parts.append("")  # Empty line between files
+        
+        result_parts.append("</files>")
+        result_parts.append("# =================================")
+        
+        return "\n".join(result_parts)
+    
     @staticmethod
     def get_schema() -> dict:
         """
@@ -232,16 +295,17 @@ class ReadFileTool:
         """
         return {
             "name": "read_file_tool",
-            "description": "Reads text/code files and returns their content as a string. Avoids reading binary files.",
+            "description": "Reads one or more text/code files and returns their content as a dictionary with filename as key and content as value. Avoids reading binary files.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "Absolute path to the file to read"
+                    "file_paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of absolute paths to files to read"
                     }
                 },
-                "required": ["file_path"]
+                "required": ["file_paths"]
             }
         }
 
@@ -251,17 +315,16 @@ class ListFilesTool():
     A tool class for listing files in a project directory.
     """
     
-    def __call__(self, project_dir: str, name: Optional[str] = None, ext: Optional[str] = None) -> List[Dict[str, str]]:
+    def __call__(self, project_dir: str, file_names: List[str]) -> List[str]:
         """
-        Lists files in the project directory based on name or extension.
+        Lists files in the project directory based on the provided file names.
 
         Parameters:
             project_dir: Directory of the project.
-            name: Optional filename to search for (returns first occurrence).
-            ext: Optional file extension to filter by (without the dot).
+            file_names: List of filenames to search for.
 
         Returns:
-            A list of dictionaries with filename as key and absolute path as value.
+            A list of absolute file paths found for the specified filenames.
             Returns empty list if no files found or on error.
         """
         try:
@@ -270,37 +333,21 @@ class ListFilesTool():
             if not project_path.exists() or not project_path.is_dir():
                 return []
             
+            if not isinstance(file_names, list):
+                raise ValueError("file_names must be a list")
+            
+            if not file_names:
+                raise ValueError("file_names cannot be empty")
+            
             result = []
             
-            if name:
-                # Search for specific filename (first occurrence)
+            # Search for each filename in the list
+            for name in file_names:
                 for file_path in project_path.rglob(name):
                     if ".venv" in str(file_path):
                         continue
                     if file_path.is_file():
-                        print("*"*80)
-                        print(file_path)
-                        print("*"*80)
-                        
-                        result.append({'filename': str(file_path.name), 'path': str(file_path.absolute())})
-                        break  # Return only first occurrence
-            elif ext:
-                # Search for files with specific extension
-                pattern = f"*.{ext}" if not ext.startswith('.') else f"*{ext}"
-                for file_path in project_path.rglob(pattern):
-                    if ".venv" in str(file_path):
-                        continue
-                    if file_path.is_file():
-                        #result.append({file_path.name: str(file_path)})
-                        result.append({'filename': str(file_path.name), 'path': str(file_path)})
-            else:
-                # List all files if no filter specified
-                for file_path in project_path.rglob("*"):
-                    if ".venv" in str(file_path):
-                        continue
-                    if file_path.is_file():
-                        result.append({'filename': str(file_path.name), 'path': str(file_path)})
-                        #result.append({file_path.name: str(file_path)})
+                        result.append(str(file_path.absolute()))
             
             return result
             
@@ -308,8 +355,7 @@ class ListFilesTool():
             # Log error but return empty list to maintain consistent return type
             return []
     
-    @staticmethod
-    def get_schema() -> dict:
+    def get_schema(self) -> dict:
         """
         Returns the function schema for this tool.
         
@@ -318,7 +364,7 @@ class ListFilesTool():
         """
         return {
             "name": "list_files_tool",
-            "description": "Lists files in the project directory, optionally filtered by name or extension. This tool cannot be used in remote projects (gitlab, github)",
+            "description": "Lists files in the project directory based on the provided file names. Returns absolute paths of found files. This tool cannot be used in remote projects (gitlab, github)",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -326,18 +372,13 @@ class ListFilesTool():
                         "type": "string",
                         "description": "Directory of the project"
                     },
-                    "name": {
-                        "type": "string",
-                        "description": "Optional filename to search for (returns first occurrence)",
-                        "default": None
-                    },
-                    "ext": {
-                        "type": "string", 
-                        "description": "Optional file extension to filter by (without the dot)",
-                        "default": None
+                    "file_names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of filenames to search for"
                     }
                 },
-                "required": ["project_dir"]
+                "required": ["project_dir", "file_names"]
             }
         }
 
@@ -351,5 +392,5 @@ read_file_tool = ReadFileTool()
 # The old schema constants are now available through the class methods
 DIFF_TOOL_SCHEMA = diff_tool.get_schema()
 COMMIT_TOOL_SCHEMA = commit_tool.get_schema()
-LIST_FILES_TOOL_SCHEMA = ListFilesTool.get_schema()
+LIST_FILES_TOOL_SCHEMA = list_files_tool.get_schema()
 READ_FILE_TOOL_SCHEMA = ReadFileTool.get_schema()
