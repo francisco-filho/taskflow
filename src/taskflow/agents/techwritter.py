@@ -10,8 +10,8 @@ from taskflow.agents import Agent
 class TechnicalWriter(Agent):
     """
     An agent responsible for generating technical documentation for code files.
-    This agent analyzes code files and creates comprehensive documentation explaining
-    what the code does and why it does it, targeted at developers.
+    This agent uses the LLM to analyze user requests and decide what files to read
+    before generating comprehensive documentation.
     """
 
     def __init__(self, model: LLMClient, system_prompt: str, available_tools: Optional[Dict[str, Callable]] = None):
@@ -19,200 +19,216 @@ class TechnicalWriter(Agent):
             "TechnicalWriter",
             model,
             "Generates technical documentation for code files by analyzing their content and structure.",
-            system_prompt,
+            f"You work with absolute file paths. If the user do not provide them, you should try to get using the available tools\n\n{system_prompt}",
             available_tools
         )
 
-    def _get_tool_schemas(self) -> List[Dict]:
-        """Returns the tool schemas available to the technical writer agent."""
-        return [LIST_FILES_TOOL_SCHEMA, READ_FILE_TOOL_SCHEMA]
-
-    def _generate_documentation(self, original_prompt: str, file_contents: Dict[str, str]) -> str:
-        """
-        Generates technical documentation based on the file contents.
-        
-        Parameters:
-            original_prompt: The original user prompt.
-            file_contents: Dictionary mapping filename to content.
-            
-        Returns:
-            The generated documentation as a string.
-        """
-        # Prepare the content for documentation generation
-        files_info = []
-        for filename, content in file_contents.items():
-            files_info.append(f"## File: {filename}\n\n```\n{content}\n```")
-        
-        combined_content = "\n\n".join(files_info)
-        
-        doc_prompt = f"""Based on the user request: "{original_prompt}"
-
-Please generate comprehensive technical documentation for the following code files. The documentation should:
-
-The first section should be small and tell how to use the functionality available in the file/class.
-
-1. Explain what each file does and its purpose
-2. Describe the main classes, functions, and their responsibilities
-3. Explain the overall architecture and how components interact
-4. Highlight important design patterns or techniques used
-5. Provide context for why certain decisions were made (when apparent from the code)
-6. Be written for developers who need to understand and work with this code
-
-Files to document:
-
-{combined_content}
-
-Generate clear, well-structured documentation that helps developers understand the codebase."""
-
-        try:
-            doc_resp = self.model.chat(prompt=doc_prompt, system_prompt=self.system_prompt)
-            return doc_resp.content
-        except Exception as e:
-            return f"Failed to generate documentation: {e}"
-
     def run(self, prompt: str, **kwargs) -> str:
         """
-        Generates technical documentation based on specified files or file patterns.
+        Generates technical documentation based on the user's request.
         
-        The agent will now always use the LLM to decide which tool to call
-        (list_files_tool or read_file_tool) based on the user's prompt.
+        The agent uses the LLM to:
+        1. Understand what the user wants documented
+        2. Decide which tools to call to gather the necessary files
+        3. Read file contents as needed
+        4. Generate comprehensive documentation
         
         Parameters:
-            prompt: The user prompt containing the documentation request and file specifications.
+            prompt: The user prompt containing the documentation request.
             **kwargs: Additional keyword arguments (for compatibility).
 
         Returns:
-            A dictionary containing the generated documentation.
+            The generated documentation as a string.
         """
         print(f"TechnicalWriter agent running with prompt: {prompt[:100]}...")
 
-        project_dir = self._extract_project_dir(prompt)
-        if not project_dir:
-            return {
-                "documentation": "Error: Could not extract project directory from prompt. Please specify the project directory.",
-                "files_processed": [],
-                "error": True
-            }
-
-        tools = self._get_tool_schemas()
-        file_contents = {}
-        files_to_process = []
-
         try:
-            # First, ask the LLM to identify what needs to be done (list or read a specific file)
-            initial_llm_prompt = (
-                f"The user wants a MARKDOWN documentation for code. The project directory is '{project_dir}'. "
-                f"Based on the prompt: '{prompt}', should I list files to find relevant ones, or is there a specific "
-                f"absolute file path mentioned that I should try to read directly? "
-                f"If you need to list files, use 'list_files_tool' with appropriate parameters (project_dir, name, or ext). "
-                f"If a specific absolute file path is given, use 'read_file_tool' for that path. "
-                f"Be explicit about the file path if using 'read_file_tool'."
-            )
-            print(f"Calling LLM for initial file identification: {initial_llm_prompt[:100]}...")
+            tools = self._get_tool_schemas()
+            file_contents = {}
+            available_files = []
             
-            resp = self.model.chat(prompt=initial_llm_prompt, system_prompt=self.system_prompt, tools=tools)
-
-            if resp.function_call:
-                if resp.function_call.name == "list_files_tool":
-                    print("LLM decided to call list_files_tool.")
-                    # LLM wants to list files
-                    list_result = self._execute_function_call(resp.function_call)
-                    print("*"*80)
-                    print(list_result, isinstance(list_result, list))
-                    print("*"*80)
+            # Let the LLM handle the entire process
+            current_prompt = prompt
+            max_iterations = 10  # Prevent infinite loops
+            iteration = 0
+            
+            while iteration < max_iterations:
+                iteration += 1
+                print(f"Iteration {iteration}: Calling LLM to process request...")
+                
+                resp = self.model.chat(prompt=current_prompt, system_prompt=self.system_prompt, tools=tools)
+                
+                logger.info("-"*50)
+                logger.info(f"LLM Response (iteration {iteration}): {resp}")
+                logger.info("-"*50)
+                
+                if resp.function_call:
+                    print(f"LLM decided to call function: {resp.function_call.name}")
                     
-                    if not isinstance(list_result, list) or not list_result:
-                        return {
-                            "documentation": "Error: LLM called list_files_tool but no files were returned or result was invalid.",
-                            "files_processed": [],
-                            "error": True
-                        }
+                    # Execute the function call
+                    result = self._execute_function_call(resp.function_call)
                     
-                    # list_result is a list of dictionaries, e.g., [{'filename': 'main.py', 'path': '/path/to/main.py'}]
-                    for file_info in list_result:
-                        # For each file, ask the LLM to read it
-                        filename = file_info.get('filename')
-                        filepath = file_info.get('path')
-                        if filename and filepath:
-                            files_to_process.append({'filename': filename, 'path': filepath})
+                    if resp.function_call.name == "list_files_tool":
+                        # Handle list files result - now returns List[str] of absolute paths
+                        if isinstance(result, list) and result:
+                            available_files = result
+                            print(f"✓ Found {len(available_files)} files")
+                            
+                            # Create a summary for the LLM
+                            files_summary = "\n".join([f"- {Path(fp).name} (path: {fp})" for fp in available_files])
+                            
+                            current_prompt = f"""Files found ({len(available_files)} total):
+{files_summary}
 
-                elif resp.function_call.name == "read_file_tool":
-                    print("LLM decided to call read_file_tool directly.")
-                    # LLM wants to read a specific file directly
-                    filepath = resp.function_call.args.get("file_path")
-                    if filepath:
-                        files_to_process.append({'filename': Path(filepath).name, 'path': filepath})
+Original request: {prompt}
+
+Now you have the list of available files. Please use read_file_tool to read the files you want to include in the documentation. 
+Note: read_file_tool accepts a list of file paths, so you can read multiple files in one call if needed."""
+                            
+                        else:
+                            current_prompt = f"""No files were found or there was an error: {result}
+
+Original request: {prompt}
+
+Please try a different approach or provide an error message if no files can be found."""
+                    
+                    elif resp.function_call.name == "read_file_tool":
+                        # Handle read file result - now returns Dict[str, str]
+                        file_paths = resp.function_call.args.get("file_paths", [])
+                        
+                        # Ensure file_paths is a list (the tool expects a list)
+                        if not isinstance(file_paths, list):
+                            file_paths = [file_paths] if file_paths else []
+                        
+                        if isinstance(result, dict) and result:
+                            # Successfully read files - result is now a dict with filename -> content
+                            file_contents.update(result)
+                            
+                            # Check for any errors in the results
+                            success_files = []
+                            error_files = []
+                            
+                            for filename, content in result.items():
+                                if content.startswith("Error reading file:"):
+                                    error_files.append(filename)
+                                else:
+                                    success_files.append(filename)
+                            
+                            if success_files:
+                                print(f"✓ Successfully read {len(success_files)} files: {', '.join(success_files)}")
+                            if error_files:
+                                print(f"✗ Failed to read {len(error_files)} files: {', '.join(error_files)}")
+                            
+                            if success_files:
+                                # Generate documentation prompt WITH ACTUAL FILE CONTENTS
+                                file_contents_section = ""
+                                for filename in success_files:
+                                    content = file_contents[filename]
+                                    file_contents_section += f"\n--- FILE: {filename} ---\n{content}\n--- END OF {filename} ---\n"
+                                
+                                current_prompt = f"""Files have been read successfully.
+
+Successfully read files: {', '.join(success_files)} ({len(success_files)} total)
+{f"Failed to read files: {', '.join(error_files)}" if error_files else ""}
+
+Original request: {prompt}
+
+FILE CONTENTS:
+{file_contents_section}
+
+You now have the file contents above. Please generate comprehensive technical documentation in MARKDOWN format that includes:
+
+1. A brief usage section explaining how to use the functionality
+2. Explanation of what each file does and its purpose  
+3. Description of main classes, functions, and their responsibilities
+4. Overall architecture and component interactions
+5. Important design patterns or techniques used
+6. Context for design decisions (when apparent from code)
+7. Written for developers who need to understand and work with this code
+
+Generate the documentation now based on the file contents you have read."""
+                            else:
+                                # All files failed to read
+                                current_prompt = f"""All files failed to read:
+{chr(10).join([f"- {fname}: {content}" for fname, content in result.items()])}
+
+Available files: {[Path(fp).name for fp in available_files] if available_files else 'None found'}
+
+Original request: {prompt}
+
+Please try reading different files from the available list, or provide an error message if no files can be accessed."""
+                            
+                        else:
+                            # Failed to read files or got unexpected result
+                            failed_files = [Path(fp).name for fp in file_paths]
+                            print(f"✗ Failed to read files: {', '.join(failed_files)} - {result}")
+                            
+                            current_prompt = f"""Failed to read files '{', '.join(failed_files)}': {result}
+
+Available files: {[Path(fp).name for fp in available_files] if available_files else 'None found'}
+
+Original request: {prompt}
+
+Please try reading different files from the available list, or provide an error message if no files can be accessed."""
+                    
                     else:
-                        return {
-                            "documentation": "Error: LLM called read_file_tool but no file_path was provided.",
-                            "files_processed": [],
-                            "error": True
-                        }
+                        return f"Error: LLM called unexpected function: {resp.function_call.name}"
+                
                 else:
-                    return {
-                        "documentation": f"Error: LLM called an unexpected tool: {resp.function_call.name}",
-                        "files_processed": [],
-                        "error": True
-                    }
+                    # LLM provided a text response - this should be the final documentation
+                    print("LLM provided final documentation response")
+                    
+                    content = resp.content.strip()
+                    
+                    # Check if this looks like proper documentation
+                    if file_contents and len(content) > 200:  # Reasonable documentation length
+                        print(f"✓ Documentation generated successfully for {len(file_contents)} file group(s)!")
+                        return content
+                    elif not file_contents and not available_files:
+                        # No files were processed at all - might be a valid response or error
+                        if "error" in content.lower() or "cannot" in content.lower() or "unable" in content.lower():
+                            return content  # Return error message as-is
+                        else:
+                            # Might need to search for files first
+                            current_prompt = f"""Your response: {content}
+
+Original request: {prompt}
+
+It seems you haven't found or read any files yet. Please use the list_files_tool first to find relevant files, then read them with read_file_tool before generating documentation."""
+                    elif available_files and not file_contents:
+                        # Files were found but not read yet
+                        current_prompt = f"""Your response: {content}
+
+You found {len(available_files)} files but haven't read them yet:
+{chr(10).join([f"- {Path(fp).name}" for fp in available_files])}
+
+Original request: {prompt}
+
+Please use read_file_tool to read the relevant files before generating documentation."""
+                    else:
+                        # Files were read but response seems incomplete
+                        # Include file contents in the retry prompt
+                        file_contents_section = ""
+                        for filename, content in file_contents.items():
+                            file_contents_section += f"\n--- FILE: {filename} ---\n{content}\n--- END OF {filename} ---\n"
+                        
+                        current_prompt = f"""You have read files but your response seems incomplete or too brief: {content}
+
+Files available: {list(file_contents.keys())}
+
+Original request: {prompt}
+
+FILE CONTENTS:
+{file_contents_section}
+
+Please generate comprehensive technical documentation in MARKDOWN format for these files based on their actual contents shown above."""
+            
+            # If we've reached max iterations without a final response
+            if file_contents:
+                return f"Error: Maximum iterations reached. Successfully read files ({list(file_contents.keys())}) but could not generate final documentation."
             else:
-                return {
-                    "documentation": f"Error: LLM did not provide a function call to identify files. Response: {resp.content}",
-                    "files_processed": [],
-                    "error": True
-                }
-
-            if not files_to_process:
-                return {
-                    "documentation": "Error: No files were identified for processing after initial LLM interaction.",
-                    "files_processed": [],
-                    "error": True
-                }
-
-            # Now, for each file identified (either from list or direct read),
-            # ask the LLM to read its content using read_file_tool
-            for file_entry in files_to_process:
-                filename = file_entry['filename']
-                filepath = file_entry['path']
-                
-                read_file_llm_prompt = (
-                    f"The file '{filename}' located at '{filepath}' needs to be read for documentation. "
-                    f"Please use the 'read_file_tool' to get its content."
-                )
-                print(f"Calling LLM to read file '{filename}': {read_file_llm_prompt[:100]}...")
-                
-                read_resp = self.model.chat(prompt=read_file_llm_prompt, system_prompt=self.system_prompt, tools=tools)
-
-                if read_resp.function_call and read_resp.function_call.name == "read_file_tool":
-                    read_content = self._execute_function_call(read_resp.function_call)
-                    if not read_content.startswith("Error:") and not read_content.startswith("An unexpected error"):
-                        file_contents[filename] = read_content
-                    else:
-                        logger.warning(f"Could not read {filename}: {read_content}")
-                else:
-                    logger.warning(f"LLM did not call read_file_tool for {filename}. Response: {read_resp.content}")
-            
-            if not file_contents:
-                return {
-                    "documentation": "Error: No file contents could be retrieved for documentation.",
-                    "files_processed": [f['filename'] for f in files_to_process],
-                    "error": True
-                }
-
-            # Step 4: Generate documentation
-            documentation = self._generate_documentation(prompt, file_contents)
-            
-            print(f"✓ Documentation generated successfully for {len(file_contents)} files!")
-            return documentation
-            # return {
-            #     "documentation": documentation,
-            #     "files_processed": list(file_contents.keys()),
-            #     "error": False
-            # }
+                return "Error: Maximum iterations reached without successfully reading any files or generating documentation."
 
         except Exception as e:
             print(f"Error during TechnicalWriter execution: {e}")
-            return {
-                "documentation": f"Execution failed: {e}",
-                "files_processed": [],
-                "error": True
-            }
+            return f"Execution failed: {e}"
