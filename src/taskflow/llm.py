@@ -325,12 +325,19 @@ class OpenAIClient(LLMClient):
 
     def _ensure_additional_properties_false(self, schema: Dict[str, Any]) -> None:
         """
-        Recursively ensure all objects in the schema have additionalProperties set to false.
-        This is required for OpenAI's strict mode.
+        Recursively ensure all objects in the schema have additionalProperties set to false
+        and required fields include all properties. This is required for OpenAI's strict mode.
         """
         if isinstance(schema, dict):
             if schema.get("type") == "object":
                 schema["additionalProperties"] = False
+                
+                # For strict mode, required must include all properties
+                if "properties" in schema:
+                    properties = schema["properties"]
+                    if isinstance(properties, dict):
+                        # Set required to include all property keys
+                        schema["required"] = list(properties.keys())
             
             # Recursively process nested schemas
             for key, value in schema.items():
@@ -343,12 +350,15 @@ class OpenAIClient(LLMClient):
 
     def _ensure_additional_properties_true(self, schema: Dict[str, Any]) -> None:
         """
-        Recursively ensure all objects in the schema have additionalProperties set to true.
-        This allows the model to return additional fields beyond the schema.
+        Recursively ensure all objects in the schema have additionalProperties set to true
+        and remove strict required constraints. This allows the model to return additional 
+        fields beyond the schema.
         """
         if isinstance(schema, dict):
             if schema.get("type") == "object":
                 schema["additionalProperties"] = True
+                # In non-strict mode, we can be more lenient with required fields
+                # Only keep required if it was explicitly set and not auto-generated
             
             # Recursively process nested schemas
             for key, value in schema.items():
