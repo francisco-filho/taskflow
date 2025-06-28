@@ -130,11 +130,6 @@ def create_task(task_type, project_dir, needs_approval=False, needs_eval=False, 
         )
     elif task_type == "diff":
         return Task(
-#             prompt=f"""
-# Propose a commit message for the staged changes in the project '{project_dir}'""",
-#             prompt=f"""
-# Propose a commit message for the staged changes in the project '{project_dir}'
-#             """,
             prompt=f"""
 Propose a commit message for the staged changes in the project 'https://github.com/francisco-filho/taskflow/pull/1'""",
 #             prompt=f"""

@@ -19,7 +19,7 @@ class TechnicalWriter(Agent):
             "TechnicalWriter",
             model,
             "Generates technical documentation for code files by analyzing their content and structure.",
-            f"You work with absolute file paths. If the user do not provide them, you should try to get using the available tools\n\n{system_prompt}",
+            f"You work with absolute file paths. If the user do not provide them, you should try to get using the available tools.\n\tWhen the project dir was not informed use the current directory\n\n{system_prompt}",
             available_tools
         )
 
