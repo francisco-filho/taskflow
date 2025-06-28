@@ -11,13 +11,14 @@ from taskflow.agents import Commiter, Evaluator
 from taskflow.agents.reviewer import Reviewer
 from taskflow.agents.diff import DiffMessager
 from taskflow.agents.techwritter import TechnicalWriter
-from taskflow.tools import diff_tool, commit_tool, list_files_tool, read_file_tool
+from taskflow.tools import ListFilesTool, diff_tool, commit_tool, list_files_tool, read_file_tool
 from taskflow.mock import create_temp_git_repo
 from taskflow.tool.github_diff import GithubPullRequestDiffTool
 from taskflow.tool.gitlab_diff import GitlabMergeRequestDiffTool
 
 github_tool = GithubPullRequestDiffTool()
 gitlab_tool = GitlabMergeRequestDiffTool()
+list_tool = ListFilesTool()
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -26,17 +27,17 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s --project /path/to/project --task diff
-  %(prog)s --project /path/to/project --task review
-  %(prog)s --project /path/to/project --task commit
-  %(prog)s --project /path/to/project --task doc
-  %(prog)s --project /path/to/project --task diff --model gemini-2.5-flash-preview-05-20
+  %(prog)s --project $path --task diff
+  %(prog)s --project $path --task review
+  %(prog)s --project $path --task commit
+  %(prog)s --project $path --task doc
+  %(prog)s --project $path --task diff --model gemini-2.5-flash-preview-05-20
   %(prog)s --create-temp-repo --task diff
         """
     )
     
     parser.add_argument(
-        "--project", "-p",
+        "--project", "-d",
         type=str,
         help="Path to the project directory (default: current directory)"
     )
@@ -93,7 +94,7 @@ Examples:
     )
 
     parser.add_argument(
-        "--prompt",
+        "--prompt", "-p",
         type=str,
         help="Custom prompt to send to the agents for the task"
     )
