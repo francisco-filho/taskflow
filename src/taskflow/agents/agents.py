@@ -208,10 +208,10 @@ class Commiter(Agent):
 class Evaluator(Agent):
     """
     A general-purpose agent responsible for evaluating whether a previous agent's response
-    fulfills the user's original request.
+    fulfills the user's original request with a numerical score from 1-5.
     """
     def __init__(self, model: LLMClient, system_prompt: str, available_tools: Optional[Dict[str, Callable]] = None):
-        super().__init__("Evaluator", model, "Evaluates whether previous agent responses fulfill user requests.", system_prompt, available_tools)
+        super().__init__("Evaluator", model, "Evaluates previous agent responses with a score from 1-5.", system_prompt, available_tools)
 
     def _get_tool_schemas(self) -> List[Dict]:
         """Returns the tool schemas available to the evaluator agent."""
@@ -353,17 +353,65 @@ class Evaluator(Agent):
         
         return ""
 
+    def _parse_evaluation_score(self, evaluation_text: str) -> tuple[int, str, str]:
+        """
+        Parses the evaluation response to extract score, explanation, and determines if fulfilled.
+        
+        Parameters:
+            evaluation_text: The LLM's evaluation response
+            
+        Returns:
+            A tuple of (score, explanation, fulfillment_status)
+        """
+        import re
+        
+        # Look for score patterns
+        score_patterns = [
+            r"(?:score|rating):\s*([1-5])",
+            r"([1-5])/5",
+            r"score\s+([1-5])",
+            r"rating\s+([1-5])",
+            r"^([1-5])\s*-",
+            r"^([1-5])\.",
+        ]
+        
+        score = 1  # Default score
+        for pattern in score_patterns:
+            match = re.search(pattern, evaluation_text, re.IGNORECASE | re.MULTILINE)
+            if match:
+                try:
+                    score = int(match.group(1))
+                    break
+                except ValueError:
+                    continue
+        
+        # Extract explanation (everything after score or the whole text)
+        explanation = evaluation_text.strip()
+        
+        # Remove score line if it exists at the beginning
+        explanation_lines = explanation.split('\n')
+        if explanation_lines and any(str(i) in explanation_lines[0] for i in range(1, 6)):
+            explanation = '\n'.join(explanation_lines[1:]).strip()
+        
+        # Determine fulfillment status based on score
+        if score >= 4:
+            fulfillment_status = "FULFILLED"
+        else:
+            fulfillment_status = "NOT_FULFILLED"
+        
+        return score, explanation, fulfillment_status
+
     def run(self, prompt: str, **kwargs) -> str:
         """
         Evaluates whether a previous agent's response fulfills the user's original request.
-        The prompt should contain both the user request and the response to be evaluated.
+        Returns a score from 1-5 with explanation.
 
         Parameters:
             prompt: The prompt containing the user request and the previous agent's response.
             **kwargs: Additional keyword arguments (for compatibility).
 
         Returns:
-            A string indicating if the request was fulfilled or not, with reasoning.
+            A formatted string with score, explanation, and the original agent response.
         """
         print(f"Evaluator agent running with prompt: {prompt[:100]}...")
 
@@ -384,7 +432,13 @@ class Evaluator(Agent):
         additional_context = self._get_additional_context(evaluation_context)
         
         # Create the evaluation prompt
-        eval_prompt = f"""You are evaluating whether an agent's response answers the user request.
+        eval_prompt = f"""You are evaluating whether an agent's response answers the user request. Rate the response on a scale of 1-5:
+
+1 = Poor: The response completely fails to address the user's request
+2 = Below Average: The response partially addresses the request but has significant gaps
+3 = Average: The response addresses most of the request but lacks some important elements
+4 = Good: The response addresses the request well with minor issues
+5 = Excellent: The response completely and accurately fulfills the user's request
 
 Original User Request:
 ```
@@ -397,23 +451,20 @@ Agent's Response:
 ```
 {additional_context}
 
-Evaluate whether the agent's response adequately fulfills the user's original request. Do not take in consideration the user's request for evaluation.
-
-IMPORTANT EVALUATION CRITERIA:
-- If the only problem with the previous agent's response is that it does not include evaluation, accept as fulfilled
-- If the user requested a evaluation, do the evaluation NOW, do not reject the 'agent_response' if it does not include a evaluation
-- You should not reject a response because a lack of the previous agent evaluation, YOU will do the evaluation
+EVALUATION CRITERIA:
 - Does the response directly address what the user asked for?
 - If the user requested an action (like committing changes), was the action actually performed?
 - If the user requested information (like a review or diff), was the information provided?
 - If the user requested generation of content (like a commit message), was the content generated?
 - Are there any obvious gaps between what was requested and what was delivered?
+- Quality and completeness of the response
 
-Respond with either:
-1. "REQUEST FULFILLED\n\n{agent_response}" if the agent's response adequately addresses the user's request
-2. "REQUEST NOT FULFILLED: [specific reason]" if the request was not adequately fulfilled (ignore evaluation)
+Please respond with:
+Score: [1-5]
+[Detailed explanation of why you gave this score, including what was done well and what could be improved]
 
-Be specific about what is missing or what needs to be done if the request was not fulfilled."""
+Be specific about your reasoning."""
+
         logger.info("-"*80)
         logger.info(eval_prompt)
         logger.info("-"*80)
@@ -424,9 +475,21 @@ Be specific about what is missing or what needs to be done if the request was no
             evaluation_result = eval_resp.content.strip()
             
             print(f"Evaluation result: {evaluation_result}")
-            return evaluation_result
+            
+            # Parse the score and explanation
+            score, explanation, fulfillment_status = self._parse_evaluation_score(evaluation_result)
+            
+            # Format the final response
+            formatted_response = f"""----------------
+Evaluation score: {score}
+{explanation}
+-----------------
+FINAL RESULT
+------------------
+{agent_response}"""
+            
+            return formatted_response
             
         except Exception as e:
             print(f"Error during Evaluator LLM interaction: {e}")
             return f"Error: LLM interaction failed during evaluation: {e}"
-
