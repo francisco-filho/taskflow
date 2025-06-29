@@ -91,8 +91,9 @@ class GeminiClient(LLMClient):
             contents.append({"role": "user", "parts": [{ "text": prompt }]})
 
         try:
+            budget = -1 if self.model_name.endswith("pro") else 0
             config = genai.types.GenerateContentConfig(
-                thinking_config=genai.types.ThinkingConfig(thinking_budget=0)
+                thinking_config=genai.types.ThinkingConfig(thinking_budget=budget)
             )
 
             if output:

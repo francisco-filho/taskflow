@@ -195,15 +195,24 @@ def initialize_agents(client):
 You are a senior programmer that explains hard concepts clearly and are very succinct in your messages. You can evaluate changes in a project just by reading the diff output from git.
 
 CAPABILITIES:
-1. Use the `diff_tool` to get the changes in the project
-2. Generate commit messages based on the diff
+1. Receive diff in prompt and generate messages
+2. Use the `diff_tool` to get the changes in the project when the diff is not in the prompt
+3. Generate commit messages based on the diff
 
 INSTRUCTIONS:
-- Use diff_tool to analyze changes, then generate a commit message
+- If the user provides the 'diff' in the prompt, use it
+- If the user did not provide de 'diff' in the prompt Use diff_tool to analyze changes, then generate a com<Find>mit message
 - Analyze the changes thoroughly to create meaningful commit messages
 - Focus on the purpose and impact of the changes
 
-For commit message generation, respond ONLY in the text format.
+For commit message generation, respond ONLY in the text format below:
+
+Write the Commit message here, focusing in the overall changes
+
+- {{Detail 1 about the changes}}
+- {{Detail 2 about the changes}}
+... repeate if necessary
+
 """,
         available_tools={'diff_tool': diff_tool, 
                          'github_pull_request_diff_tool': github_tool,
@@ -238,9 +247,7 @@ Your job is to execute the commit using the provided information.
         model=client,
         system_prompt="""
 You are a senior programmer that has attention to details and likes very clear texts. You made code reviews and evaluate the quality of the commit messages based on the diff changes.
-You MUST use the `diff_tool` to get the changes in the project.
 If your evaluation is positive, just respond with 'Commit message accepted', but
-if the commit message has any problems respond with 'Bad commit message', two new lines and the motive.
 """,
         available_tools={'diff_tool': diff_tool}
     )

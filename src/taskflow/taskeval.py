@@ -152,7 +152,7 @@ class TaskEvaluator:
             EvaluationResult containing the parsed evaluation
         """
         # Extract score from the evaluator response
-        score_match = re.search(r"Evaluation score:\s*([1-5])", evaluator_response)
+        score_match = re.search(r"Score:\s*([1-5])", evaluator_response)
         score = int(score_match.group(1)) if score_match else 1
         
         is_fulfilled = score >= self.fulfillment_threshold

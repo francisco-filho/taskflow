@@ -8,7 +8,7 @@ from taskflow.exceptions import NoChangesStaged
 
 def _result(commit_message: str, error=False) -> Dict[str, Any]:
     return {
-        "commit_message": commit_message,
+        "message": commit_message,
         "error": error}
 
 
@@ -161,9 +161,6 @@ And the following git diff:
 
 Generate a commit message in the following format, text only, be very succint:
 
----------------------------------------
-- Commit message 
----------------------------------------
 {{Commit message, focusing in the overall changes}}
 
 - {{Detail 1 about the changes}}

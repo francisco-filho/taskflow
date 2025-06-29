@@ -76,7 +76,7 @@ class PlanExecutor:
             self.memory.append(agent.name)
             
             # Build context for this step
-            step_context = context_builder(current_step, task_prompt) + last_agent_response
+            step_context = context_builder(current_step, task_prompt)
             print(f"Step context length: {len(step_context)} characters")
             
             try:
@@ -84,16 +84,20 @@ class PlanExecutor:
                 self.memory.append(f"\n--- prompt ----\n{step_context}")
                 result = ""
                 agent_resp = agent.run(prompt=step_context)
+                # print("*"*80)
+                # print(agent_resp)
+                # print("*"*80)
                 if isinstance(agent_resp, str):
                     result = agent_resp
                 else:
-                    result = str(agent_resp)
+                    # TODO: chek for errors
+                    result = agent_resp['message']
 
                 last_agent_response = result
                 self.memory.append(result)
                 
                 # Store the result
-                self.step_results[current_step.step_number] = result
+                self.step_results[current_step.step_number] = f"\n{result}\n"
                 
                 result_str = json.dumps(result, indent=2) if isinstance(result, dict) else str(result)
                 
@@ -135,10 +139,11 @@ class TaskCompletionHandler:
         """
         self.evaluator = evaluator
     
+
     def handle_completion(self, 
-                         task: Task, 
-                         plan: ExecutionPlan, 
-                         step_results: Dict[int, Any]) -> tuple[bool, Any]:
+                     task: Task, 
+                     plan: ExecutionPlan, 
+                     step_results: Dict[int, Any]) -> tuple[bool, Any]:
         """
         Handle task completion evaluation and approval.
         
@@ -164,6 +169,9 @@ class TaskCompletionHandler:
         final_step_num = max(step_results.keys())
         final_response = step_results[final_step_num]
         
+        # Find the last step to check if it was an Evaluator
+        last_step = self._find_step_by_number(plan, final_step_num)
+        
         # Determine completion success based on evaluation
         success = self._evaluate_completion(task, plan, final_step_num, final_response, step_results)
         
@@ -171,8 +179,21 @@ class TaskCompletionHandler:
             # Handle user approval if required
             success = self._handle_user_approval(task)
         
+        # If the last step was an Evaluator, combine the actual result with the evaluation
+        if last_step and last_step.agent_name.lower() == "evaluator" and len(step_results) > 1:
+            # Get the second-to-last step result (the actual work result)
+            sorted_steps = sorted(step_results.keys())
+            if len(sorted_steps) >= 2:
+                actual_result_step = sorted_steps[-2]  # Second to last
+                actual_result = step_results[actual_result_step]
+                evaluation_result = final_response
+                
+                # Combine them in the desired format
+                combined_result = f"{actual_result}\n{'-'*50}\n{evaluation_result}"
+                return success, combined_result
+        
         return success, final_response
-    
+
     def _evaluate_completion(self, 
                            task: Task, 
                            plan: ExecutionPlan, 
@@ -325,7 +346,7 @@ class TaskFlow:
                 if dep_step_num in step_results:
                     result = step_results[dep_step_num]
                     result_str = json.dumps(result, indent=2) if isinstance(result, dict) else str(result)
-                    context_parts.append(f"  Step {dep_step_num} Result: {result_str}")
+                    context_parts.append(f"  Step {dep_step_num} Result: {result_str}\n")
         
         # If no specific dependencies, but this isn't the first step, include the most recent result
         elif step.step_number > 1 and step_results:
@@ -385,10 +406,10 @@ class TaskFlow:
                 step_results=step_results
             )
 
-            print("*"*80)
-            for l in self.plan_executor.memory:
-                print(l)
-            print("*"*80)
+            # print("*"*80)
+            # for l in self.plan_executor.memory:
+            #     print(l)
+            # print("*"*80)
             
             if success:
                 self.final_response = final_response
