@@ -1,6 +1,6 @@
 import git 
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 from taskflow.util import logger
 from taskflow.models import CommitMessage
@@ -73,32 +73,25 @@ class CommitTool:
     A tool class for committing staged changes with a commit message.
     """
     
-    def __call__(self, project_dir: str, message: CommitMessage) -> str:
+    def __call__(self, project_dir: str, message: str) -> str:
         """
         Commits staged changes with the provided commit message.
 
         Parameters:
             project_dir: Directory of the project with a git repo.
-            message: CommitMessage object containing message and details.
+            message: Commit message string.
 
         Returns:
             A string indicating success or error message.
         """
         try:
             repo = git.Repo(project_dir)
-            # Format the commit message
-            m = CommitMessage(**message)
-            formatted_message = m.message
-            if m.details:
-                formatted_message += "\n\n"
-                for detail in m.details:
-                    formatted_message += f"- {detail}\n"
             
-            # Create the commit
-            commit = repo.index.commit(formatted_message)
+            # Create the commit with the simple string message
+            commit = repo.index.commit(message)
         
             #commit = "a"
-            #logger.info(f"Comitando: {formatted_message}")
+            #logger.info(f"Comitando: {message}")
             
             return f"Successfully committed with hash: {commit.hexsha[:8]}"
             
@@ -127,20 +120,8 @@ class CommitTool:
                         "description": "Directory of the project with a git repo"
                     },
                     "message": {
-                        "type": "object",
-                        "description": "CommitMessage object with message and details",
-                        "properties": {
-                            "message": {
-                                "type": "string",
-                                "description": "Main commit message"
-                            },
-                            "details": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "List of detailed changes"
-                            }
-                        },
-                        "required": ["message", "details"]
+                        "type": "string",
+                        "description": "Commit message string"
                     }
                 },
                 "required": ["project_dir", "message"]
