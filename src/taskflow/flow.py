@@ -82,7 +82,13 @@ class PlanExecutor:
             try:
                 # Execute the agent
                 self.memory.append(f"\n--- prompt ----\n{step_context}")
-                result = agent.run(prompt=step_context)
+                result = ""
+                agent_resp = agent.run(prompt=step_context)
+                if isinstance(agent_resp, str):
+                    result = agent_resp
+                else:
+                    result = str(agent_resp)
+
                 last_agent_response = result
                 self.memory.append(result)
                 

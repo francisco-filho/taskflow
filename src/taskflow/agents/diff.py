@@ -1,11 +1,16 @@
-import json
 from typing import Optional, Dict, List, Any, Callable
 
 from taskflow.util import logger
 from taskflow.llm import LLMClient
-from taskflow.models import CommitMessage
 from taskflow.agents import Agent
 from taskflow.exceptions import NoChangesStaged
+
+
+def _result(commit_message: str, error=False) -> Dict[str, Any]:
+    return {
+        "commit_message": commit_message,
+        "error": error}
+
 
 class DiffMessager(Agent):
     """
@@ -22,7 +27,7 @@ class DiffMessager(Agent):
             return []
         return [tool.get_schema() for tool in self.available_tools.values()]
 
-    def run(self, prompt: str, **kwargs) -> str:
+    def run(self, prompt: str, **kwargs) -> Dict[str, Any]:
         """
         Generates a commit message based on diff changes.
         
@@ -45,35 +50,24 @@ class DiffMessager(Agent):
             # Check if diff is already provided in the prompt
             if "```diff" in prompt.lower() or "diff --git" in prompt:
                 print("Diff found in prompt, skipping tool call...")
-                return self._generate_commit_message_from_prompt(prompt)
+                cm = self._generate_commit_message_from_prompt(prompt)
+                return _result(cm)
 
             # Step 1: Get the diff of staged changes using LLM tool calling
             diff_result = self._get_diff(prompt)
             if diff_result.startswith("Error: ") or diff_result.startswith("Warning: "):
-                return f"Error getting diff: => {diff_result}"
-                # return {
-                #     "message": "Error getting diff", 
-                #     "details": [diff_result],
-                #     "error": True
-                # }
-
+                return _result(f"Error getting diff: => {diff_result}", True)
             # Step 2: Generate commit message based on diff
             commit_message_data = self._generate_commit_message(prompt, diff_result)
-            # if commit_message_data.get("error"):
-                # return commit_message_data
 
             print("✓ Commit message generated successfully!")
-            return commit_message_data
+            return _result(commit_message_data)
 
         except NoChangesStaged:
             raise
         except Exception as e:
             print(f"Error during DiffMessager execution: {e}")
-            return {
-                "message": f"Execution failed: {e}", 
-                "details": [],
-                "error": True
-            }
+            return _result(f"Execution failed: {e}", True)
 
     def _get_diff(self, prompt: str) -> str:
         """
@@ -116,7 +110,7 @@ class DiffMessager(Agent):
 
 "{prompt}"
 
-Generate a commit message in the specified JSON format with a message and a detailed list of changes"""
+Generate a commit message in the specified format with a message and a detailed list of changes"""
 
         try:
             # Generate commit message
@@ -144,12 +138,7 @@ Generate a commit message in the specified JSON format with a message and a deta
             #     }
                 
         except Exception as e:
-            return f"Failed to generate commit message: {e}"
-            # return {
-            #     "message": f"Failed to generate commit message: {e}", 
-            #     "details": [],
-            #     "error": True
-            # }
+            return _result(f"Failed to generate commit message: {e}", True)
 
     def _generate_commit_message(self, original_prompt: str, diff_result: str) -> str:
         """
@@ -212,9 +201,4 @@ It could have as much detail lines as seen necessary
             #     }
                 
         except Exception as e:
-            return "Failed to generate commit message: {e}"
-        #     return {
-        #         "message": f"Failed to generate commit message: {e}", 
-        #         "details": [],
-        #         "error": True
-        #     }
+            return f"Failed to generate commit message: {e}"

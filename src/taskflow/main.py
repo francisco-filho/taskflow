@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 from taskflow.llm import get_client
 from taskflow.flow import Task, TaskFlow
-from taskflow.agents import Commiter
+from taskflow.agents.commiter import Commiter
 from taskflow.agents.reviewer import Reviewer
 from taskflow.agents.diff import DiffMessager
 from taskflow.agents.evaluator import Evaluator
@@ -174,9 +174,9 @@ Propose a commit message for the staged changes in the project 'https://github.c
             doc_prompt += " focusing on Python files"
         
         doc_prompt += ". Explain what the code does, its architecture, and key components for developers."
-        print("-"*50)
-        print(doc_prompt)
-        print("-"*50)
+        # print("-"*50)
+        # print(doc_prompt)
+        # print("-"*50)
         
         return Task(
             prompt=doc_prompt,
