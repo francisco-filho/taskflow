@@ -203,8 +203,7 @@ INSTRUCTIONS:
 - Analyze the changes thoroughly to create meaningful commit messages
 - Focus on the purpose and impact of the changes
 
-For commit message generation, respond ONLY in the JSON format (example):
-{"message": "Refactor GitReviewer for improved LLM integration and REPL functionality", "details": ["Introduced a `_get_config` method in `LLMGoogle` to centralize LLM calls.", "Refactored `main.py` to use a new `init_repl` function, streamlining the application's entry point and focusing on a REPL interface.", "Moved the `Message` Pydantic model to a dedicated `models.py`"]}
+For commit message generation, respond ONLY in the text format.
 """,
         available_tools={'diff_tool': diff_tool, 
                          'github_pull_request_diff_tool': github_tool,

@@ -25,6 +25,7 @@ class PlanExecutor:
         """
         self.available_agents = available_agents
         self.step_results: Dict[int, Any] = {}
+        self.memory = []
     
     def _get_agent_by_name(self, agent_name: str) -> Optional[Agent]:
         """Get an agent by its name"""
@@ -53,6 +54,7 @@ class PlanExecutor:
         self.step_results.clear()  # Reset results for new execution
         
         overall_attempt = 0
+        last_agent_response = "\n"
         while not plan.is_complete() and overall_attempt < max_attempts:
             overall_attempt += 1
             current_step = plan.get_current_step()
@@ -64,19 +66,25 @@ class PlanExecutor:
             print(f"Description: {current_step.description}")
             
             # Get the agent for this step
+            self.memory.append([s for s in plan.steps])
             agent = self._get_agent_by_name(current_step.agent_name)
             if not agent:
                 print(f"Agent '{current_step.agent_name}' not found. Skipping step.")
                 plan.advance_step()
                 continue
+            self.memory.append("\n---Agent---")
+            self.memory.append(agent.name)
             
             # Build context for this step
-            step_context = context_builder(current_step, task_prompt)
+            step_context = context_builder(current_step, task_prompt) + last_agent_response
             print(f"Step context length: {len(step_context)} characters")
             
             try:
                 # Execute the agent
+                self.memory.append(f"\n--- prompt ----\n{step_context}")
                 result = agent.run(prompt=step_context)
+                last_agent_response = result
+                self.memory.append(result)
                 
                 # Store the result
                 self.step_results[current_step.step_number] = result
@@ -370,10 +378,14 @@ class TaskFlow:
                 plan=self.current_plan,
                 step_results=step_results
             )
+
+            print("*"*80)
+            for l in self.plan_executor.memory:
+                print(l)
+            print("*"*80)
             
             if success:
                 self.final_response = final_response
-                
         except NoChangesStaged as e:
             logger.error(e)
             exit(1)

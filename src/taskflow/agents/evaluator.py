@@ -264,10 +264,6 @@ Score: [1-5]
 
 Be specific about your reasoning."""
 
-        logger.info("-"*80)
-        logger.info(eval_prompt)
-        logger.info("-"*80)
-
         try:
             # Get the evaluation from the LLM
             eval_resp = self.model.chat(prompt=eval_prompt, system_prompt=self.system_prompt)
