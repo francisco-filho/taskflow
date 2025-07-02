@@ -179,9 +179,6 @@ Propose a commit message for the staged changes in the project 'https://github.c
             doc_prompt += " focusing on Python files"
         
         doc_prompt += ". Explain what the code does, its architecture, and key components for developers."
-        # print("-"*50)
-        # print(doc_prompt)
-        # print("-"*50)
         
         return Task(
             prompt=doc_prompt,
@@ -220,7 +217,7 @@ Write the Commit message here, focusing in the overall changes
 
 """,
         available_tools={
-            'diff_tool': Tool('diff_tool', diff_tool, needs_approval=True), 
+            'diff_tool': Tool('diff_tool', diff_tool, needs_approval=True),
             'github_pull_request_diff_tool': Tool('github_pull_request_diff_tool', github_tool, needs_approval=False),
             'gitlab_merge_request_diff_tool': Tool('gitlab_merge_request_diff_tool', gitlab_tool, needs_approval=False),
         }
