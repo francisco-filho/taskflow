@@ -1,1 +1,1 @@
-from taskflow.agents.agents import Agent
+from taskflow.agents.agents import Agent, Tool

@@ -1,8 +1,9 @@
 from typing import Optional, Dict, List, Any, Callable
 
+from taskflow.agents.agents import ToolExecutionNotAuthorized
 from taskflow.util import logger
 from taskflow.llm import LLMClient
-from taskflow.agents import Agent
+from taskflow.agents import Agent, Tool
 from taskflow.exceptions import NoChangesStaged
 
 
@@ -18,14 +19,18 @@ class DiffMessager(Agent):
     This agent analyzes diffs and creates appropriate commit messages.
     """
 
-    def __init__(self, model: LLMClient, system_prompt: str, available_tools: Optional[Dict[str, Callable]] = None):
+    def __init__(self, model: LLMClient, system_prompt: str, available_tools: Optional[Dict[str, Tool]] = None):
         super().__init__("DiffMessager", model, "Generates commit messages from code diffs by analyzing staged changes.", system_prompt, available_tools)
 
     def _get_tool_schemas(self) -> List[Dict]:
         """Returns the tool schemas available to the diff messager agent."""
         if not self.available_tools:
             return []
-        return [tool.get_schema() for tool in self.available_tools.values()]
+        schemas = []
+        for tool in self.available_tools.values():
+            if hasattr(tool.fn, 'get_schema'):
+                schemas.append(tool.fn.get_schema())
+        return schemas
 
     def run(self, prompt: str, **kwargs) -> Dict[str, Any]:
         """
@@ -64,6 +69,8 @@ class DiffMessager(Agent):
             return _result(commit_message_data)
 
         except NoChangesStaged:
+            raise
+        except ToolExecutionNotAuthorized as e:
             raise
         except Exception as e:
             print(f"Error during DiffMessager execution: {e}")

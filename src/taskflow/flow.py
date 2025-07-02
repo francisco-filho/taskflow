@@ -1,6 +1,7 @@
 import json
 from typing import Optional, Dict, Any, Callable
 
+from taskflow.agents.agents import ToolExecutionNotAuthorized
 from taskflow.util import logger
 from taskflow.agents import Agent
 from taskflow.llm import LLMClient
@@ -84,9 +85,6 @@ class PlanExecutor:
                 self.memory.append(f"\n--- prompt ----\n{step_context}")
                 result = ""
                 agent_resp = agent.run(prompt=step_context)
-                # print("*"*80)
-                # print(agent_resp)
-                # print("*"*80)
                 if isinstance(agent_resp, str):
                     result = agent_resp
                 else:
@@ -112,7 +110,9 @@ class PlanExecutor:
                 
             except NoChangesStaged as e:
                 logger.error(e)
-                raise  # Re-raise this specific exception to be handled at higher level
+                raise
+            except ToolExecutionNotAuthorized as e:
+                raise
             except Exception as e:
                 print(f"Error executing step {current_step.step_number}: {e}")
                 plan.advance_step()

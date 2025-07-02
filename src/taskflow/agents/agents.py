@@ -25,9 +25,11 @@ class Tool():
 
     def __call__(self, **kwargs):
         if self.needs_approval:
-            print("*" * 80)
-            print(f"Tool: {self.name} - Parameters: {kwargs}")
-            print("-" * 80)
+            print(f"Tool:{self.name}")
+            print("Parameters:")
+            for param, value in kwargs.items():
+                print(f"{param}: {value}")
+            print("-----------------------------")
             print("Do you approve the execution of the tool above? (y/n): ", end="")
             
             try:

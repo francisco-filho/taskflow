@@ -1,3 +1,4 @@
+from logging import Logger
 import os
 import argparse
 from pathlib import Path
@@ -8,6 +9,7 @@ from dotenv import load_dotenv
 
 from taskflow.llm import get_client
 from taskflow.flow import Task, TaskFlow
+from taskflow.agents import Tool
 from taskflow.agents.commiter import Commiter
 from taskflow.agents.reviewer import Reviewer
 from taskflow.agents.diff import DiffMessager
@@ -21,22 +23,6 @@ from taskflow.tool.gitlab_diff import GitlabMergeRequestDiffTool
 github_tool = GithubPullRequestDiffTool()
 gitlab_tool = GitlabMergeRequestDiffTool()
 list_tool = ListFilesTool()
-
-class Tool():
-    name: str
-    fn: Callable
-    needs_approval: bool
-
-    def __init__(self, name: str, fn: Callable, needs_approval=True):
-        self.name = name
-        self.fn = fn
-        self.needs_approval = needs_approval
-
-    def __call__(self, **kwargs):
-        if self.needs_approval:
-            # TODO: ask the approval of the user to execute the Tool
-            pass
-        return self.fn(kwargs)
 
 
 
@@ -233,10 +219,11 @@ Write the Commit message here, focusing in the overall changes
 ... repeate if necessary
 
 """,
-        available_tools={'diff_tool': diff_tool, 
-                         'github_pull_request_diff_tool': github_tool,
-                         'gitlab_merge_request_diff_tool': gitlab_tool,
-                         }
+        available_tools={
+            'diff_tool': Tool('diff_tool', diff_tool, needs_approval=True), 
+            'github_pull_request_diff_tool': Tool('github_pull_request_diff_tool', github_tool, needs_approval=False),
+            'gitlab_merge_request_diff_tool': Tool('gitlab_merge_request_diff_tool', gitlab_tool, needs_approval=False),
+        }
     )
 
     commiter_agent = Commiter(
@@ -259,7 +246,7 @@ You will receive prompts containing:
 
 Your job is to execute the commit using the provided information.
 """,
-        available_tools={'commit_tool': commit_tool}
+        available_tools={'commit_tool': Tool('commit_tool', commit_tool, needs_approval=True)}
     )
 
     evaluator_agent = Evaluator(
@@ -268,7 +255,7 @@ Your job is to execute the commit using the provided information.
 You are a senior programmer that has attention to details and likes very clear texts. You made code reviews and evaluate the quality of the commit messages based on the diff changes.
 If your evaluation is positive, just respond with 'Commit message accepted', but
 """,
-        available_tools={'diff_tool': diff_tool}
+        available_tools={'diff_tool': Tool('diff_tool', diff_tool, needs_approval=False)}
     )
 
     reviewer_agent = Reviewer(
@@ -277,10 +264,11 @@ If your evaluation is positive, just respond with 'Commit message accepted', but
 You are a meticulous code reviewer. Your task is to provide a concise and constructive review of the given code changes, focusing on clarity, potential issues, and adherence to best practices. Summarize the key changes and any recommendations.
 If the diff was not provided by the user you MUST use a diff tool to get the staged changes in the project.
 """,
-        available_tools={'diff_tool': diff_tool, 
-                         'github_pull_request_diff_tool': github_tool,
-                         'gitlab_merge_request_diff_tool': gitlab_tool,
-                         }
+        available_tools={
+            'diff_tool': Tool('diff_tool', diff_tool, needs_approval=False), 
+            'github_pull_request_diff_tool': Tool('github_pull_request_diff_tool', github_tool, needs_approval=False),
+            'gitlab_merge_request_diff_tool': Tool('gitlab_merge_request_diff_tool', gitlab_tool, needs_approval=False),
+        }
     )
 
     technical_writer_agent = TechnicalWriter(
@@ -308,8 +296,8 @@ INSTRUCTIONS:
 - Include code examples when helpful for understanding
 """,
         available_tools={  
-            'list_files_tool': Tool('list_file_tools', list_files_tool, False),
-            'read_file_tool': read_file_tool
+            'list_files_tool': Tool('list_files_tool', list_files_tool, needs_approval=False),
+            'read_file_tool': Tool('read_file_tool', read_file_tool, needs_approval=False)
         }
     )
     

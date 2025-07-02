@@ -16,11 +16,6 @@ class Commiter(Agent):
         sysp = system_prompt + "\nIf a project directory was not informed use the current directory as base for the git repository"
         super().__init__("Commiter", model, "Commits staged changes to git repository using provided commit message.", sysp, available_tools)
 
-    def _get_tool_schemas(self) -> List[Dict]:
-        """Returns the tool schemas available to the commiter agent."""
-        if not self.available_tools:
-            return []
-        return [tool.get_schema() for tool in self.available_tools.values()]
 
     def run(self, prompt: str, **kwargs) -> Dict[str, Any]:
         """
@@ -58,9 +53,9 @@ class Commiter(Agent):
                     commit_message = resp.function_call.args.get("message", "No commit message provided")
                     
                     # Ask for user approval
-                    approval = input(f"\n{'-'*80}\n{commit_message}\n{'-'*80}\n\nCan I commit the staged changes with this message? [y/N] ")
-                    if approval.strip().lower() != "y":
-                        raise UserNotApprovedException("User did not approve the commit")
+                    #approval = input(f"\n{'-'*80}\n{commit_message}\n{'-'*80}\n\nCan I commit the staged changes with this message? [y/N] ")
+                    #if approval.strip().lower() != "y":
+                    #    raise UserNotApprovedException("User did not approve the commit")
                 
                 # Execute the function call
                 result = self._execute_function_call(resp.function_call)
