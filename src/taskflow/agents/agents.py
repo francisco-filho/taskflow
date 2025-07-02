@@ -4,17 +4,50 @@ from abc import ABC, abstractmethod
 from taskflow.llm import LLMClient
 from taskflow.exceptions import NoChangesStaged
 
+
+class ToolExecutionNotAuthorized(Exception):
+    """Exception raised when tool execution is not authorized by the user."""
+    def __init__(self, tool_name: str, params: Dict[str, Any]):
+        self.tool_name = tool_name
+        self.params = params
+        super().__init__(f"Tool '{tool_name}' execution not authorized. Params: {params}")
+
+
 class Tool():
     name: str
     fn: Callable
-    needs_approval: bool = True
+    needs_approval: bool
+
+    def __init__(self, name: str, fn: Callable, needs_approval=True):
+        self.name = name
+        self.fn = fn
+        self.needs_approval = needs_approval
+
+    def __call__(self, **kwargs):
+        if self.needs_approval:
+            print("*" * 80)
+            print(f"Tool: {self.name} - Parameters: {kwargs}")
+            print("-" * 80)
+            print("Do you approve the execution of the tool above? (y/n): ", end="")
+            
+            try:
+                user_input = input().strip().lower()
+                if user_input not in ['y', 'yes']:
+                    raise ToolExecutionNotAuthorized(self.name, kwargs)
+            except (EOFError, KeyboardInterrupt):
+                # Handle cases where input might not be available
+                raise ToolExecutionNotAuthorized(self.name, kwargs)
+            
+            print("-" * 80)
+
+        return self.fn(**kwargs)
 
 
 class Agent(ABC):
     """
     Abstract base class for AI agents.
     """
-    def __init__(self, name: str, model: LLMClient, description: str, system_prompt: str, available_tools: Optional[Dict[str, Callable]] = None):
+    def __init__(self, name: str, model: LLMClient, description: str, system_prompt: str, available_tools: Optional[Dict[str, Tool]] = None):
         """
         Initializes an agent.
 
@@ -23,7 +56,7 @@ class Agent(ABC):
             model: An instance of LLMClient (e.g., GeminiClient) for LLM interactions.
             description: A brief description of what the agent does.
             system_prompt: The system-level prompt to guide the agent's LLM behavior.
-            available_tools: A dictionary mapping tool names to their functions.
+            available_tools: A dictionary mapping tool names to Tool instances.
         """
         self.name = name
         self.model = model
@@ -58,9 +91,12 @@ class Agent(ABC):
 
         try:
             print(f"Executing function: {function_name} with args: {function_args}")
-            result = self.available_tools[function_name](**function_args)
+            tool = self.available_tools[function_name]
+            result = tool(**function_args)
             return result
         except NoChangesStaged as e:
+            raise
+        except ToolExecutionNotAuthorized as e:
             raise
         except Exception as e:
             return f"Error executing function '{function_name}': {e}"
@@ -72,7 +108,11 @@ class Agent(ABC):
         """
         if not self.available_tools:
             return []
-        return [tool.get_schema() for tool in self.available_tools.values()]
+        schemas = []
+        for tool in self.available_tools.values():
+            if hasattr(tool.fn, 'get_schema'):
+                schemas.append(tool.fn.get_schema())
+        return schemas
 
     def _extract_project_dir(self, prompt: str) -> str:
         """
@@ -97,4 +137,3 @@ class Agent(ABC):
                     return word.strip(".,!?")
 
         return ""
-
