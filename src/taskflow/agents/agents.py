@@ -1,5 +1,4 @@
 import json
-import logging
 import tempfile
 import subprocess
 from typing import Optional, Dict, List, Any, Callable
@@ -7,15 +6,7 @@ from abc import ABC, abstractmethod
 
 from taskflow.util import printc
 from taskflow.llm import LLMClient
-from taskflow.exceptions import NoChangesStaged
-
-
-class ToolExecutionNotAuthorized(Exception):
-    """Exception raised when tool execution is not authorized by the user."""
-    def __init__(self, tool_name: str, params: Dict[str, Any]):
-        self.tool_name = tool_name
-        self.params = params
-        super().__init__(f"Tool '{tool_name}' execution not authorized. Params: {params}")
+from taskflow.exceptions import NoChangesStaged, ToolExecutionNotAuthorized
 
 
 class Tool():
@@ -33,7 +24,6 @@ class Tool():
         Opens vim to edit parameters and returns the modified parameters.
         """
         try:
-            # Create a temporary file with the current parameters
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
                 json.dump(kwargs, temp_file, indent=2, ensure_ascii=False)
                 temp_file_path = temp_file.name
@@ -46,7 +36,6 @@ class Tool():
                 edited_content = temp_file.read()
                 edited_kwargs = json.loads(edited_content)
 
-            # Clean up the temporary file
             import os
             os.unlink(temp_file_path)
 
@@ -83,11 +72,7 @@ class Tool():
                         continue
                     else:
                         raise ToolExecutionNotAuthorized(self.name, kwargs)
-                    # user_input = input().strip().lower()
-                    # if user_input not in ['y', 'yes']:
-                    #     raise ToolExecutionNotAuthorized(self.name, kwargs)
                 except (EOFError, KeyboardInterrupt):
-                    # Handle cases where input might not be available
                     raise ToolExecutionNotAuthorized(self.name, kwargs)
                 except ToolExecutionNotAuthorized as e:
                     raise

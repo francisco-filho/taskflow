@@ -1,3 +1,5 @@
+from typing import Dict, Any
+
 # Custom exceptions for ReadFileTool
 class FileDoesNotExistException(Exception):
     """Raised when a file does not exist."""
@@ -17,3 +19,10 @@ class FileDecodingException(Exception):
 
 class NoChangesStaged(Exception):
     """Raised when there is no changes in project and the application try to diff-staged"""
+
+class ToolExecutionNotAuthorized(Exception):
+    """Exception raised when tool execution is not authorized by the user."""
+    def __init__(self, tool_name: str, params: Dict[str, Any]):
+        self.tool_name = tool_name
+        self.params = params
+        super().__init__(f"Tool '{tool_name}' execution not authorized. Params: {params}")

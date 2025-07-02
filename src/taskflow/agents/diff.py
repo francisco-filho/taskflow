@@ -1,10 +1,9 @@
 from typing import Optional, Dict, List, Any, Callable
 
-from taskflow.agents.agents import ToolExecutionNotAuthorized
 from taskflow.util import logger
 from taskflow.llm import LLMClient
 from taskflow.agents import Agent, Tool
-from taskflow.exceptions import NoChangesStaged
+from taskflow.exceptions import NoChangesStaged, ToolExecutionNotAuthorized
 
 
 def _result(commit_message: str, error=False) -> Dict[str, Any]:

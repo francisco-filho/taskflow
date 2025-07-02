@@ -1,13 +1,12 @@
 import json
 from typing import Optional, Dict, Any, Callable
 
-from taskflow.agents.agents import ToolExecutionNotAuthorized
 from taskflow.util import logger
 from taskflow.agents import Agent
 from taskflow.llm import LLMClient
 from taskflow.plan import Planner, PlanStep, ExecutionPlan
 from taskflow.models import Task
-from taskflow.exceptions import NoChangesStaged
+from taskflow.exceptions import NoChangesStaged, ToolExecutionNotAuthorized
 from taskflow.taskeval import TaskEvaluator
 
 
