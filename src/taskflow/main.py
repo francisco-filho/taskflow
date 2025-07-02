@@ -1,6 +1,7 @@
 import os
 import argparse
 from pathlib import Path
+from typing import Callable
 import json
 
 from dotenv import load_dotenv
@@ -20,6 +21,24 @@ from taskflow.tool.gitlab_diff import GitlabMergeRequestDiffTool
 github_tool = GithubPullRequestDiffTool()
 gitlab_tool = GitlabMergeRequestDiffTool()
 list_tool = ListFilesTool()
+
+class Tool():
+    name: str
+    fn: Callable
+    needs_approval: bool
+
+    def __init__(self, name: str, fn: Callable, needs_approval=True):
+        self.name = name
+        self.fn = fn
+        self.needs_approval = needs_approval
+
+    def __call__(self, **kwargs):
+        if self.needs_approval:
+            # TODO: ask the approval of the user to execute the Tool
+            pass
+        return self.fn(kwargs)
+
+
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -288,8 +307,8 @@ INSTRUCTIONS:
 - Structure documentation clearly with headings and sections
 - Include code examples when helpful for understanding
 """,
-        available_tools={
-            'list_files_tool': list_files_tool,
+        available_tools={  
+            'list_files_tool': Tool('list_file_tools', list_files_tool, False),
             'read_file_tool': read_file_tool
         }
     )

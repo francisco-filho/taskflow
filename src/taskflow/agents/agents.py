@@ -4,6 +4,12 @@ from abc import ABC, abstractmethod
 from taskflow.llm import LLMClient
 from taskflow.exceptions import NoChangesStaged
 
+class Tool():
+    name: str
+    fn: Callable
+    needs_approval: bool = True
+
+
 class Agent(ABC):
     """
     Abstract base class for AI agents.

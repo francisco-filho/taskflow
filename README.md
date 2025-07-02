@@ -23,6 +23,7 @@
     - [ ] Structure
 
 ## TODO
+- [ ] Some tools need approval to be used, should be ease to configure
 - [ ] Feedback
     - [ ] Store prompts and outputs
     - [ ] Store tools selection and outputs
@@ -34,3 +35,4 @@
 - [ ] Add costs/token usage
     - [ ] Store somewhere
 - [ ] Deal with exceptions
+
