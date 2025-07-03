@@ -1,6 +1,6 @@
 import argparse
 
-from taskflow.models import Task
+from taskflow.models import Request
 from taskflow.agents.commiter import Commiter
 from taskflow.agents.reviewer import Reviewer
 from taskflow.agents.diff import DiffMessager
@@ -99,14 +99,14 @@ Examples:
 def create_task(task_type, project_dir, needs_approval=False, needs_eval=False, file_name=None, file_ext=None, custom_prompt=None):
     """Create a task based on the task type."""
     if custom_prompt:
-        return Task(
+        return Request(
             prompt=custom_prompt,
             needs_approval=needs_approval,
             needs_eval=needs_eval, # Assuming custom prompts might need evaluation
             needs_plan=True # Assuming custom prompts might need planning
         )
     elif task_type == "diff":
-        return Task(
+        return Request(
             prompt=f"""
 Propose a commit message for the staged changes in the project 'https://github.com/francisco-filho/taskflow/pull/1'""",
 #             prompt=f"""
@@ -118,7 +118,7 @@ Propose a commit message for the staged changes in the project 'https://github.c
             needs_plan=True
         )
     elif task_type == "review":
-        return Task(
+        return Request(
             prompt=f"""
             Generate a concise REVIEW about changes in the project '{project_dir}'.
             """,
@@ -130,7 +130,7 @@ Propose a commit message for the staged changes in the project 'https://github.c
             needs_plan=True
         )
     elif task_type == "commit":
-        return Task(
+        return Request(
             prompt=f"""
             Generate a commit message for the staged changes in the project '{project_dir}' and commit the changes. Commit the changes in the repository.
             """,
@@ -151,7 +151,7 @@ Propose a commit message for the staged changes in the project 'https://github.c
         
         doc_prompt += ". Explain what the code does, its architecture, and key components for developers."
         
-        return Task(
+        return Request(
             prompt=doc_prompt,
             needs_approval=needs_approval,
             needs_eval=needs_eval,

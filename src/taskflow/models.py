@@ -2,9 +2,9 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 
 # Tasks
-class Task(BaseModel):
+class Request(BaseModel):
     """
-    Represents a task requested by the user.
+    Represents a request from the user.
     """
     prompt: str = Field(..., description="The original user prompt for the task.")
     needs_plan: bool = Field(False, description="True if the task requires an explicit plan from an LLM.")

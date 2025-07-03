@@ -4,8 +4,8 @@ from typing import Optional, Dict, Any, Callable
 from taskflow.util import logger
 from taskflow.agents import Agent
 from taskflow.llm import LLMClient
-from taskflow.plan import Planner, PlanStep, ExecutionPlan
-from taskflow.models import Task
+from taskflow.plan import Planner, Task, ExecutionPlan
+from taskflow.models import Request
 from taskflow.exceptions import NoChangesStaged, ToolExecutionNotAuthorized
 from taskflow.taskeval import TaskEvaluator
 
@@ -36,7 +36,7 @@ class PlanExecutor:
     
     def execute_plan(self, 
                     plan: ExecutionPlan, 
-                    context_builder: Callable[[PlanStep, str], str],
+                    context_builder: Callable[[Task, str], str],
                     task_prompt: str,
                     max_attempts: int = 10) -> Dict[int, Any]:
         """
@@ -86,8 +86,10 @@ class PlanExecutor:
                 agent_resp = agent.run(prompt=step_context)
                 if isinstance(agent_resp, str):
                     result = agent_resp
+                elif 'replan' in agent_resp and agent_resp['replan'] == True:
+                    # TODO: Do the re-planing, get the agent response, add to the current context and do a replaning, do not execute steps already executed
+                    pass
                 else:
-                    # TODO: chek for errors
                     result = agent_resp['message']
 
                 last_agent_response = result
@@ -140,7 +142,7 @@ class TaskCompletionHandler:
     
 
     def handle_completion(self, 
-                     task: Task, 
+                     task: Request, 
                      plan: ExecutionPlan, 
                      step_results: Dict[int, Any]) -> tuple[bool, Any]:
         """
@@ -194,7 +196,7 @@ class TaskCompletionHandler:
         return success, final_response
 
     def _evaluate_completion(self, 
-                           task: Task, 
+                           task: Request, 
                            plan: ExecutionPlan, 
                            final_step_num: int, 
                            final_response: Any,
@@ -221,7 +223,7 @@ class TaskCompletionHandler:
         else:
             return self._handle_standard_completion(task, final_response)
     
-    def _find_step_by_number(self, plan: ExecutionPlan, step_number: int) -> Optional[PlanStep]:
+    def _find_step_by_number(self, plan: ExecutionPlan, step_number: int) -> Optional[Task]:
         """Find a step in the plan by its step number"""
         for step in plan.steps:
             if step.step_number == step_number:
@@ -242,7 +244,7 @@ class TaskCompletionHandler:
             print(f"✗ Overall task evaluation score too low: {evaluation_result.score}/5")
             return False
     
-    def _handle_standard_completion(self, task: Task, final_response: Any) -> bool:
+    def _handle_standard_completion(self, task: Request, final_response: Any) -> bool:
         """Handle completion using standard TaskEvaluator"""
         if task.needs_eval:
             final_result_str = json.dumps(final_response, indent=2) if isinstance(final_response, dict) else str(final_response)
@@ -258,7 +260,7 @@ class TaskCompletionHandler:
             print("Task execution completed (no evaluation requested).")
             return True
     
-    def _handle_user_approval(self, task: Task) -> bool:
+    def _handle_user_approval(self, task: Request) -> bool:
         """
         Handle user approval logic.
         
@@ -321,7 +323,7 @@ class TaskFlow:
         
         print(f"Agent '{agent.name}' added to TaskFlow.")
 
-    def _build_step_context(self, step: PlanStep, task_prompt: str) -> str:
+    def _build_step_context(self, step: Task, task_prompt: str) -> str:
         """
         Build the context for a specific step, including results from previous steps.
         This method remains in TaskFlow as it depends on the overall execution state.
@@ -357,7 +359,7 @@ class TaskFlow:
         
         return "\n\n".join(context_parts)
 
-    def run(self, task: Task, max_attempts: int = 10):
+    def run(self, task: Request, max_attempts: int = 10):
         """
         Executes the task by creating and following an execution plan.
         Now focuses on orchestration while delegating execution and completion handling.

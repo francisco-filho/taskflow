@@ -8,13 +8,13 @@ from taskflow.llm import LLMClient
 from taskflow.models import PlanningResponse
 
 @dataclass
-class PlanStep:
-    """Represents a single step in the execution plan"""
+class Task:
+    """Represents a single task in the execution plan"""
     step_number: int
     agent_name: str
     description: str
-    input_context: str = ""  # Context to pass to this step
-    depends_on: List[int] = None  # List of step numbers this step depends on
+    input_context: str = ""  # Context to pass to this task
+    depends_on: List[int] = None  # List of step numbers this task depends on
     
     def __post_init__(self):
         if self.depends_on is None:
@@ -31,7 +31,7 @@ class PlanStep:
         }
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'PlanStep':
+    def from_dict(cls, data: Dict[str, Any]) -> 'Task':
         """Create from dictionary"""
         return cls(
             step_number=data['step_number'],
@@ -42,15 +42,15 @@ class PlanStep:
         )
 
 class ExecutionPlan:
-    """Represents the complete execution plan for a task"""
+    """Represents the complete execution plan for a request"""
     def __init__(self):
-        self.steps: List[PlanStep] = []
+        self.steps: List[Task] = []
         self.current_step = 0
         
-    def add_step(self, step: PlanStep):
+    def add_step(self, step: Task):
         self.steps.append(step)
         
-    def get_current_step(self) -> Optional[PlanStep]:
+    def get_current_step(self) -> Optional[Task]:
         if self.current_step < len(self.steps):
             return self.steps[self.current_step]
         return None
@@ -77,13 +77,13 @@ class ExecutionPlan:
         """Create ExecutionPlan from list of step dictionaries"""
         plan = cls()
         for step_data in steps_data:
-            plan.add_step(PlanStep.from_dict(step_data))
+            plan.add_step(Task.from_dict(step_data))
         return plan
 
 
 class Planner:
     """
-    Responsible for analyzing tasks and creating execution plans.
+    Responsible for analyzing requests and creating execution plans.
     """
     
     def __init__(self, model: LLMClient, available_agents: List[Agent]):
@@ -181,7 +181,7 @@ Do not use Markdown. Respond as JSON"""
             
             if plan_data.get("requires_planning", False) and plan_data.get("steps"):
                 for step_data in plan_data["steps"]:
-                    step = PlanStep(
+                    step = Task(
                         step_number=step_data["step_number"],
                         agent_name=step_data["agent_name"],
                         description=step_data["description"],
@@ -194,7 +194,7 @@ Do not use Markdown. Respond as JSON"""
                 # Single step plan - select the best agent for the entire task
                 selected_agent = self._select_best_agent(task_prompt)
                 if selected_agent:
-                    step = PlanStep(
+                    step = Task(
                         step_number=1,
                         agent_name=selected_agent.name,
                         description=f"Handle the complete task: {task_prompt}",
@@ -212,7 +212,7 @@ Do not use Markdown. Respond as JSON"""
             selected_agent = self._select_best_agent(task_prompt)
             execution_plan = ExecutionPlan()
             if selected_agent:
-                step = PlanStep(
+                step = Task(
                     step_number=1,
                     agent_name=selected_agent.name,
                     description=f"Handle the complete task: {task_prompt}",
