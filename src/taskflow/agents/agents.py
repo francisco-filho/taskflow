@@ -1,16 +1,93 @@
+import json
+import tempfile
+import subprocess
 from typing import Optional, Dict, List, Any, Callable
 from abc import ABC, abstractmethod
 
-from taskflow.util import logger
+from taskflow.util import printc
 from taskflow.llm import LLMClient
-from taskflow.models import UserNotApprovedException
-from taskflow.exceptions import NoChangesStaged
+from taskflow.exceptions import NoChangesStaged, ToolExecutionNotAuthorized
+
+
+class Tool():
+    name: str
+    fn: Callable
+    needs_approval: bool
+
+    def __init__(self, name: str, fn: Callable, needs_approval=True):
+        self.name = name
+        self.fn = fn
+        self.needs_approval = needs_approval
+
+    def _edit_parameters(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Opens vim to edit parameters and returns the modified parameters.
+        """
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
+                json.dump(kwargs, temp_file, indent=2, ensure_ascii=False)
+                temp_file_path = temp_file.name
+
+            # Open vim with the temporary file
+            subprocess.run(['vim', temp_file_path], check=True)
+
+            # Read the modified content
+            with open(temp_file_path, 'r') as temp_file:
+                edited_content = temp_file.read()
+                edited_kwargs = json.loads(edited_content)
+
+            import os
+            os.unlink(temp_file_path)
+
+            return edited_kwargs
+
+        except subprocess.CalledProcessError:
+            print("Error: Could not open vim editor.")
+            return kwargs
+        except json.JSONDecodeError:
+            print("Error: Invalid JSON format after editing. Using original parameters.")
+            return kwargs
+        except Exception as e:
+            print(f"Error during editing: {e}. Using original parameters.")
+            return kwargs
+
+    def __call__(self, **kwargs):
+        if self.needs_approval:
+            while True:
+                print("-"*80)
+                printc(f"Tool: [blue]{self.name}[/blue]")
+                print("Parameters:")
+                #printc(kwargs)
+                for param, value in kwargs.items():
+                    printc(f"{param}: [green]{value}[/green]")
+                print("-"*80)
+                printc("[red]Do you approve the execution of the tool above?[/red] (y/n/e): ", end="")
+                
+                try:
+                    user_input = input().strip().lower()
+                    if user_input in ['y', 'yes']:
+                        break
+                    elif user_input in ['e', 'edit']:
+                        kwargs = self._edit_parameters(kwargs)
+                        continue
+                    else:
+                        raise ToolExecutionNotAuthorized(self.name, kwargs)
+                except (EOFError, KeyboardInterrupt):
+                    raise ToolExecutionNotAuthorized(self.name, kwargs)
+                except ToolExecutionNotAuthorized as e:
+                    raise
+                    
+            
+            print("-" * 80)
+
+        return self.fn(**kwargs)
+
 
 class Agent(ABC):
     """
     Abstract base class for AI agents.
     """
-    def __init__(self, name: str, model: LLMClient, description: str, system_prompt: str, available_tools: Optional[Dict[str, Callable]] = None):
+    def __init__(self, name: str, model: LLMClient, description: str, system_prompt: str, available_tools: Optional[Dict[str, Tool]] = None):
         """
         Initializes an agent.
 
@@ -19,7 +96,7 @@ class Agent(ABC):
             model: An instance of LLMClient (e.g., GeminiClient) for LLM interactions.
             description: A brief description of what the agent does.
             system_prompt: The system-level prompt to guide the agent's LLM behavior.
-            available_tools: A dictionary mapping tool names to their functions.
+            available_tools: A dictionary mapping tool names to Tool instances.
         """
         self.name = name
         self.model = model
@@ -54,9 +131,12 @@ class Agent(ABC):
 
         try:
             print(f"Executing function: {function_name} with args: {function_args}")
-            result = self.available_tools[function_name](**function_args)
+            tool = self.available_tools[function_name]
+            result = tool(**function_args)
             return result
         except NoChangesStaged as e:
+            raise
+        except ToolExecutionNotAuthorized as e:
             raise
         except Exception as e:
             return f"Error executing function '{function_name}': {e}"
@@ -68,7 +148,11 @@ class Agent(ABC):
         """
         if not self.available_tools:
             return []
-        return [tool.get_schema() for tool in self.available_tools.values()]
+        schemas = []
+        for tool in self.available_tools.values():
+            if hasattr(tool.fn, 'get_schema'):
+                schemas.append(tool.fn.get_schema())
+        return schemas
 
     def _extract_project_dir(self, prompt: str) -> str:
         """
@@ -93,115 +177,3 @@ class Agent(ABC):
                     return word.strip(".,!?")
 
         return ""
-
-
-class Commiter(Agent):
-    """
-    An agent responsible for committing changes to a git repository.
-    This agent uses the LLM to decide what action to take based on the user prompt.
-    """
-
-    def __init__(self, model: LLMClient, system_prompt: str, available_tools: Optional[Dict[str, Callable]] = None):
-        super().__init__("Commiter", model, "Commits staged changes to git repository using provided commit message.", system_prompt, available_tools)
-
-    def _get_tool_schemas(self) -> List[Dict]:
-        """Returns the tool schemas available to the commiter agent."""
-        if not self.available_tools:
-            return []
-        return [tool.get_schema() for tool in self.available_tools.values()]
-
-    def run(self, prompt: str, **kwargs) -> Dict[str, Any]:
-        """
-        Processes the user prompt and decides what action to take using the LLM.
-        
-        The agent will:
-        1. Pass the user prompt to the LLM
-        2. Let the LLM decide what tool to call (if any)
-        3. Execute the tool if a function call is made
-        4. Return the result
-        
-        Parameters:
-            prompt: The user prompt that may contain commit instructions.
-            **kwargs: Additional keyword arguments (for compatibility).
-
-        Returns:
-            A dictionary containing the result of the operation.
-        """
-        print(f"Commiter agent running with prompt: {prompt[:100]}...")
-
-        try:
-            # Let the LLM decide what to do with the prompt
-            tools = self._get_tool_schemas()
-            resp = self.model.chat(prompt=prompt, system_prompt=self.system_prompt, tools=tools)
-            
-            logger.info("-"*50)
-            logger.info(f"LLM Response: {resp}")
-            logger.info("-"*50)
-            
-            # If the LLM decided to call a function, execute it
-            if resp.function_call:
-                print(f"LLM decided to call function: {resp.function_call.name}")
-                
-                # Handle commit operations with user approval
-                if resp.function_call.name == "commit_tool":
-                    # Extract commit message from function arguments for approval
-                    commit_message = resp.function_call.args.get("message", "No commit message provided")
-                    
-                    # Ask for user approval
-                    approval = input(f"\n{'-'*80}\n{commit_message}\n{'-'*80}\n\nCan I commit the staged changes with this message? [y/N] ")
-                    if approval.strip().lower() != "y":
-                        raise UserNotApprovedException("User did not approve the commit")
-                
-                # Execute the function call
-                result = self._execute_function_call(resp.function_call)
-                
-                # Format the response based on the function called
-                if resp.function_call.name == "commit_tool":
-                    if "Successfully committed" in str(result):
-                        print("✓ Changes committed successfully!")
-                        return {
-                            "message": resp.function_call.args.get("message", ""),
-                            "commit_result": result,
-                            "committed": True,
-                            "error": False
-                        }
-                    else:
-                        print("✗ Commit failed")
-                        return {
-                            "message": resp.function_call.args.get("message", ""),
-                            "commit_result": result,
-                            "committed": False,
-                            "error": True
-                        }
-                else:
-                    # For other tools, return the result directly
-                    return {
-                        "message": f"Executed {resp.function_call.name}",
-                        "result": result,
-                        "error": False
-                    }
-            
-            # If no function call was made, return the LLM's text response
-            else:
-                print("LLM provided a text response without function calls")
-                return {
-                    "message": resp.content,
-                    "error": False
-                }
-
-        except UserNotApprovedException as e:
-            print(f"Operation cancelled by user: {e}")
-            return {
-                "message": f"Operation cancelled: {e}",
-                "error": True
-            }
-        except NoChangesStaged as e:
-            print(f"No changes staged: {e}")
-            raise  # Re-raise this specific exception
-        except Exception as e:
-            print(f"Error during Commiter execution: {e}")
-            return {
-                "message": f"Execution failed: {e}",
-                "error": True
-            }
-

@@ -1,11 +1,16 @@
-import json
 from typing import Optional, Dict, List, Any, Callable
 
 from taskflow.util import logger
 from taskflow.llm import LLMClient
-from taskflow.models import CommitMessage
-from taskflow.agents import Agent
-from taskflow.exceptions import NoChangesStaged
+from taskflow.agents import Agent, Tool
+from taskflow.exceptions import NoChangesStaged, ToolExecutionNotAuthorized
+
+
+def _result(commit_message: str, error=False) -> Dict[str, Any]:
+    return {
+        "message": commit_message,
+        "error": error}
+
 
 class DiffMessager(Agent):
     """
@@ -13,14 +18,18 @@ class DiffMessager(Agent):
     This agent analyzes diffs and creates appropriate commit messages.
     """
 
-    def __init__(self, model: LLMClient, system_prompt: str, available_tools: Optional[Dict[str, Callable]] = None):
+    def __init__(self, model: LLMClient, system_prompt: str, available_tools: Optional[Dict[str, Tool]] = None):
         super().__init__("DiffMessager", model, "Generates commit messages from code diffs by analyzing staged changes.", system_prompt, available_tools)
 
     def _get_tool_schemas(self) -> List[Dict]:
         """Returns the tool schemas available to the diff messager agent."""
         if not self.available_tools:
             return []
-        return [tool.get_schema() for tool in self.available_tools.values()]
+        schemas = []
+        for tool in self.available_tools.values():
+            if hasattr(tool.fn, 'get_schema'):
+                schemas.append(tool.fn.get_schema())
+        return schemas
 
     def run(self, prompt: str, **kwargs) -> Dict[str, Any]:
         """
@@ -45,34 +54,26 @@ class DiffMessager(Agent):
             # Check if diff is already provided in the prompt
             if "```diff" in prompt.lower() or "diff --git" in prompt:
                 print("Diff found in prompt, skipping tool call...")
-                return self._generate_commit_message_from_prompt(prompt)
-            
+                cm = self._generate_commit_message_from_prompt(prompt)
+                return _result(cm)
+
             # Step 1: Get the diff of staged changes using LLM tool calling
             diff_result = self._get_diff(prompt)
             if diff_result.startswith("Error: ") or diff_result.startswith("Warning: "):
-                return {
-                    "message": "Error getting diff", 
-                    "details": [diff_result],
-                    "error": True
-                }
-
+                return _result(f"Error getting diff: => {diff_result}", True)
             # Step 2: Generate commit message based on diff
             commit_message_data = self._generate_commit_message(prompt, diff_result)
-            if commit_message_data.get("error"):
-                return commit_message_data
 
             print("✓ Commit message generated successfully!")
-            return commit_message_data
+            return _result(commit_message_data)
 
         except NoChangesStaged:
             raise
+        except ToolExecutionNotAuthorized as e:
+            raise
         except Exception as e:
             print(f"Error during DiffMessager execution: {e}")
-            return {
-                "message": f"Execution failed: {e}", 
-                "details": [],
-                "error": True
-            }
+            return _result(f"Execution failed: {e}", True)
 
     def _get_diff(self, prompt: str) -> str:
         """
@@ -101,7 +102,7 @@ class DiffMessager(Agent):
             logger.error(e)
             raise
 
-    def _generate_commit_message_from_prompt(self, prompt: str) -> Dict[str, Any]:
+    def _generate_commit_message_from_prompt(self, prompt: str) -> str:
         """
         Generates a commit message when diff is already provided in the prompt.
         
@@ -115,40 +116,37 @@ class DiffMessager(Agent):
 
 "{prompt}"
 
-Generate a commit message in the specified JSON format with a message and a detailed list of changes"""
+Generate a commit message in the specified format with a message and a detailed list of changes"""
 
         try:
             # Generate commit message
-            commit_resp = self.model.chat(prompt=commit_prompt, system_prompt=self.system_prompt, output=CommitMessage)
+            commit_resp = self.model.chat(prompt=commit_prompt, system_prompt=self.system_prompt)
             message_content = commit_resp.content
+            return message_content
 
-            try:
-                parsed_json = json.loads(message_content)
-                if isinstance(parsed_json, dict) and "message" in parsed_json and "details" in parsed_json:
-                    return parsed_json
-                else:
-                    print(f"Warning: LLM response was not in expected JSON format. Raw: {message_content}")
-                    return {
-                        "message": "Invalid format from LLM", 
-                        "details": [message_content],
-                        "error": True
-                    }
-            except json.JSONDecodeError:
-                print(f"Warning: LLM response was not valid JSON. Raw: {message_content}")
-                return {
-                    "message": "Invalid JSON response from LLM", 
-                    "details": [message_content],
-                    "error": True
-                }
+            # try:
+            #     parsed_json = json.loads(message_content)
+            #     if isinstance(parsed_json, dict) and "message" in parsed_json and "details" in parsed_json:
+            #         return parsed_json
+            #     else:
+            #         print(f"Warning: LLM response was not in expected JSON format. Raw: {message_content}")
+            #         return {
+            #             "message": "Invalid format from LLM", 
+            #             "details": [message_content],
+            #             "error": True
+            #         }
+            # except json.JSONDecodeError:
+            #     print(f"Warning: LLM response was not valid JSON. Raw: {message_content}")
+            #     return {
+            #         "message": "Invalid JSON response from LLM", 
+            #         "details": [message_content],
+            #         "error": True
+            #     }
                 
         except Exception as e:
-            return {
-                "message": f"Failed to generate commit message: {e}", 
-                "details": [],
-                "error": True
-            }
+            return _result(f"Failed to generate commit message: {e}", True)
 
-    def _generate_commit_message(self, original_prompt: str, diff_result: str) -> Dict[str, Any]:
+    def _generate_commit_message(self, original_prompt: str, diff_result: str) -> str:
         """
         Generates a commit message based on the diff result.
         
@@ -167,39 +165,43 @@ And the following git diff:
 {diff_result}
 ```
 
-Generate a commit message in the specified JSON format with a message and small list of changes.
-Be very brief and prefer shorter lines.
+Generate a commit message in the following format, text only, be very succint:
 
+{{Commit message, focusing in the overall changes}}
+
+- {{Detail 1 about the changes}}
+- {{Detail 2 about the changes}}
+... repeate if necessary
+
+It could have as much detail lines as seen necessary
 
 """
 
         try:
             # Generate commit message
-            commit_resp = self.model.chat(prompt=commit_prompt, system_prompt=self.system_prompt, output=CommitMessage)
+            commit_resp = self.model.chat(prompt=commit_prompt, system_prompt=self.system_prompt)
             message_content = commit_resp.content
 
-            try:
-                parsed_json = json.loads(message_content)
-                if isinstance(parsed_json, dict) and "message" in parsed_json and "details" in parsed_json:
-                    return parsed_json
-                else:
-                    print(f"Warning: LLM response was not in expected JSON format. Raw: {message_content}")
-                    return {
-                        "message": "Invalid format from LLM", 
-                        "details": [message_content],
-                        "error": True
-                    }
-            except json.JSONDecodeError:
-                print(f"Warning: LLM response was not valid JSON. Raw: {message_content}")
-                return {
-                    "message": "Invalid JSON response from LLM", 
-                    "details": [message_content],
-                    "error": True
-                }
+            return message_content
+
+            # try:
+            #     parsed_json = json.loads(message_content)
+            #     if isinstance(parsed_json, dict) and "message" in parsed_json and "details" in parsed_json:
+            #         return parsed_json
+            #     else:
+            #         print(f"Warning: LLM response was not in expected JSON format. Raw: {message_content}")
+            #         return {
+            #             "message": "Invalid format from LLM", 
+            #             "details": [message_content],
+            #             "error": True
+            #         }
+            # except json.JSONDecodeError:
+            #     print(f"Warning: LLM response was not valid JSON. Raw: {message_content}")
+            #     return {
+            #         "message": "Invalid JSON response from LLM", 
+            #         "details": [message_content],
+            #         "error": True
+            #     }
                 
         except Exception as e:
-            return {
-                "message": f"Failed to generate commit message: {e}", 
-                "details": [],
-                "error": True
-            }
+            return f"Failed to generate commit message: {e}"

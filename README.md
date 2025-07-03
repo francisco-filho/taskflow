@@ -3,6 +3,7 @@
 ## Agents
 - [x] Plan work
 - [ ] Document code (classes and functions)
+- [x] Evaluator should answer if a score (1..5) and it should not 'break the build'
 - [ ] Review diffs
     - [x] Simple diff
     - [ ] Allow the user to specify requirements (ddd, ports-and-adapters...)
@@ -22,6 +23,7 @@
     - [ ] Structure
 
 ## TODO
+- [ ] Some tools need approval to be used, should be ease to configure
 - [ ] Feedback
     - [ ] Store prompts and outputs
     - [ ] Store tools selection and outputs
@@ -33,3 +35,4 @@
 - [ ] Add costs/token usage
     - [ ] Store somewhere
 - [ ] Deal with exceptions
+

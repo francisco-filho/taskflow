@@ -1,7 +1,7 @@
 import os
 import logging
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from rich import print as printc
 
 load_dotenv()
 

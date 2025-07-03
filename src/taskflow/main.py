@@ -1,13 +1,16 @@
+from logging import Logger
 import os
 import argparse
 from pathlib import Path
+from typing import Callable
 import json
 
 from dotenv import load_dotenv
 
 from taskflow.llm import get_client
 from taskflow.flow import Task, TaskFlow
-from taskflow.agents import Commiter
+from taskflow.agents import Tool
+from taskflow.agents.commiter import Commiter
 from taskflow.agents.reviewer import Reviewer
 from taskflow.agents.diff import DiffMessager
 from taskflow.agents.evaluator import Evaluator
@@ -20,6 +23,8 @@ from taskflow.tool.gitlab_diff import GitlabMergeRequestDiffTool
 github_tool = GithubPullRequestDiffTool()
 gitlab_tool = GitlabMergeRequestDiffTool()
 list_tool = ListFilesTool()
+
+
 
 def parse_arguments():
     """Parse command line arguments."""
@@ -174,9 +179,6 @@ Propose a commit message for the staged changes in the project 'https://github.c
             doc_prompt += " focusing on Python files"
         
         doc_prompt += ". Explain what the code does, its architecture, and key components for developers."
-        print("-"*50)
-        print(doc_prompt)
-        print("-"*50)
         
         return Task(
             prompt=doc_prompt,
@@ -195,21 +197,30 @@ def initialize_agents(client):
 You are a senior programmer that explains hard concepts clearly and are very succinct in your messages. You can evaluate changes in a project just by reading the diff output from git.
 
 CAPABILITIES:
-1. Use the `diff_tool` to get the changes in the project
-2. Generate commit messages based on the diff
+1. Receive diff in prompt and generate messages
+2. Use the `diff_tool` to get the changes in the project when the diff is not in the prompt
+3. Generate commit messages based on the diff
 
 INSTRUCTIONS:
-- Use diff_tool to analyze changes, then generate a commit message
+- If the user provides the 'diff' in the prompt, use it
+- If the user did not provide de 'diff' in the prompt Use diff_tool to analyze changes, then generate a com<Find>mit message
 - Analyze the changes thoroughly to create meaningful commit messages
 - Focus on the purpose and impact of the changes
 
-For commit message generation, respond ONLY in the JSON format (example):
-{"message": "Refactor GitReviewer for improved LLM integration and REPL functionality", "details": ["Introduced a `_get_config` method in `LLMGoogle` to centralize LLM calls.", "Refactored `main.py` to use a new `init_repl` function, streamlining the application's entry point and focusing on a REPL interface.", "Moved the `Message` Pydantic model to a dedicated `models.py`"]}
+For commit message generation, respond ONLY in the text format below:
+
+Write the Commit message here, focusing in the overall changes
+
+- {{Detail 1 about the changes}}
+- {{Detail 2 about the changes}}
+... repeate if necessary
+
 """,
-        available_tools={'diff_tool': diff_tool, 
-                         'github_pull_request_diff_tool': github_tool,
-                         'gitlab_merge_request_diff_tool': gitlab_tool,
-                         }
+        available_tools={
+            'diff_tool': Tool('diff_tool', diff_tool, needs_approval=True),
+            'github_pull_request_diff_tool': Tool('github_pull_request_diff_tool', github_tool, needs_approval=False),
+            'gitlab_merge_request_diff_tool': Tool('gitlab_merge_request_diff_tool', gitlab_tool, needs_approval=False),
+        }
     )
 
     commiter_agent = Commiter(
@@ -232,18 +243,16 @@ You will receive prompts containing:
 
 Your job is to execute the commit using the provided information.
 """,
-        available_tools={'commit_tool': commit_tool}
+        available_tools={'commit_tool': Tool('commit_tool', commit_tool, needs_approval=True)}
     )
 
     evaluator_agent = Evaluator(
         model=client,
         system_prompt="""
 You are a senior programmer that has attention to details and likes very clear texts. You made code reviews and evaluate the quality of the commit messages based on the diff changes.
-You MUST use the `diff_tool` to get the changes in the project.
 If your evaluation is positive, just respond with 'Commit message accepted', but
-if the commit message has any problems respond with 'Bad commit message', two new lines and the motive.
 """,
-        available_tools={'diff_tool': diff_tool}
+        available_tools={'diff_tool': Tool('diff_tool', diff_tool, needs_approval=False)}
     )
 
     reviewer_agent = Reviewer(
@@ -252,10 +261,11 @@ if the commit message has any problems respond with 'Bad commit message', two ne
 You are a meticulous code reviewer. Your task is to provide a concise and constructive review of the given code changes, focusing on clarity, potential issues, and adherence to best practices. Summarize the key changes and any recommendations.
 If the diff was not provided by the user you MUST use a diff tool to get the staged changes in the project.
 """,
-        available_tools={'diff_tool': diff_tool, 
-                         'github_pull_request_diff_tool': github_tool,
-                         'gitlab_merge_request_diff_tool': gitlab_tool,
-                         }
+        available_tools={
+            'diff_tool': Tool('diff_tool', diff_tool, needs_approval=False), 
+            'github_pull_request_diff_tool': Tool('github_pull_request_diff_tool', github_tool, needs_approval=False),
+            'gitlab_merge_request_diff_tool': Tool('gitlab_merge_request_diff_tool', gitlab_tool, needs_approval=False),
+        }
     )
 
     technical_writer_agent = TechnicalWriter(
@@ -282,9 +292,9 @@ INSTRUCTIONS:
 - Structure documentation clearly with headings and sections
 - Include code examples when helpful for understanding
 """,
-        available_tools={
-            'list_files_tool': list_files_tool,
-            'read_file_tool': read_file_tool
+        available_tools={  
+            'list_files_tool': Tool('list_files_tool', list_files_tool, needs_approval=False),
+            'read_file_tool': Tool('read_file_tool', read_file_tool, needs_approval=False)
         }
     )
     
