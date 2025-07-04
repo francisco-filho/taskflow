@@ -98,7 +98,7 @@ def main():
         return 1
     
     # Initialize agents
-    diff_messager_agent, commiter_agent, evaluator_agent, reviewer_agent, technical_writer_agent = initialize_agents(client)
+    diff_messager_agent, commiter_agent, evaluator_agent, reviewer_agent, technical_writer_agent, arch_agent = initialize_agents(client)
     
     # Create and configure the flow
     flow = TaskFlow(model=client)
@@ -107,6 +107,7 @@ def main():
     flow.add(evaluator_agent)
     flow.add(reviewer_agent)
     flow.add(technical_writer_agent)
+    flow.add(arch_agent)
     
     # Run the task
     try:

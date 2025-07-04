@@ -5,6 +5,7 @@ from taskflow.agents.commiter import Commiter
 from taskflow.agents.reviewer import Reviewer
 from taskflow.agents.diff import DiffMessager
 from taskflow.agents.evaluator import Evaluator
+from taskflow.agents.arch import Architect
 from taskflow.agents.techwritter import TechnicalWriter
 from taskflow.tools import ListFilesTool, diff_tool, commit_tool, list_files_tool, read_file_tool
 from taskflow.agents import Tool
@@ -268,5 +269,14 @@ INSTRUCTIONS:
             'read_file_tool': Tool('read_file_tool', read_file_tool, needs_approval=False)
         }
     )
+
+    arch_agent = Architect(
+        model=client,
+        system_prompt="",
+        available_tools={
+            'list_files_tool': Tool('list_files_tool', list_files_tool, needs_approval=False),
+            'read_file_tool': Tool('read_file_tool', read_file_tool, needs_approval=False)
+        }
+    )
     
-    return diff_messager_agent, commiter_agent, evaluator_agent, reviewer_agent, technical_writer_agent
+    return diff_messager_agent, commiter_agent, evaluator_agent, reviewer_agent, technical_writer_agent, arch_agent

@@ -15,56 +15,65 @@ class PlanExecutor:
     Responsible for executing plan steps and managing step results.
     Handles the granular execution loop and error management.
     """
-    
-    def __init__(self, available_agents: list[Agent]):
+
+    def __init__(self, available_agents: list[Agent], planner: Planner):
         """
         Initialize PlanExecutor.
-        
+
         Args:
             available_agents: List of available agents for execution
+            planner: The planner instance for replanning capabilities.
         """
         self.available_agents = available_agents
+        self.planner = planner
         self.step_results: Dict[int, Any] = {}
         self.memory = []
-    
+
     def _get_agent_by_name(self, agent_name: str) -> Optional[Agent]:
         """Get an agent by its name"""
         for agent in self.available_agents:
             if agent.name.lower() == agent_name.lower():
                 return agent
         return None
-    
-    def execute_plan(self, 
-                    plan: ExecutionPlan, 
-                    context_builder: Callable[[Task, str], str],
-                    task_prompt: str,
-                    max_attempts: int = 10) -> Dict[int, Any]:
+
+    def _find_step_by_number(self, plan: ExecutionPlan, step_number: int) -> Optional[Task]:
+        """Find a step in the plan by its step number"""
+        for step in plan.steps:
+            if step.step_number == step_number:
+                return step
+        return None
+
+    def execute_plan(self,
+                     plan: ExecutionPlan,
+                     context_builder: Callable[[Task, str], str],
+                     task_prompt: str,
+                     max_attempts: int = 10) -> Dict[int, Any]:
         """
         Execute the given execution plan.
-        
+
         Args:
             plan: The execution plan to run
             context_builder: Function to build context for each step
             task_prompt: The original task prompt
             max_attempts: Maximum number of attempts for overall execution
-            
+
         Returns:
             Dictionary of step results indexed by step number
         """
         self.step_results.clear()  # Reset results for new execution
-        
+
         overall_attempt = 0
         last_agent_response = "\n"
         while not plan.is_complete() and overall_attempt < max_attempts:
             overall_attempt += 1
             current_step = plan.get_current_step()
-            
+
             if not current_step:
                 break
-                
+
             print(f"\n--- Executing Step {current_step.step_number}: {current_step.agent_name} ---")
             print(f"Description: {current_step.description}")
-            
+
             # Get the agent for this step
             self.memory.append([s for s in plan.steps])
             agent = self._get_agent_by_name(current_step.agent_name)
@@ -74,11 +83,11 @@ class PlanExecutor:
                 continue
             self.memory.append("\n---Agent---")
             self.memory.append(agent.name)
-            
+
             # Build context for this step
             step_context = context_builder(current_step, task_prompt)
             print(f"Step context length: {len(step_context)} characters")
-            
+
             try:
                 # Execute the agent
                 self.memory.append(f"\n--- prompt ----\n{step_context}")
@@ -87,28 +96,81 @@ class PlanExecutor:
                 if isinstance(agent_resp, str):
                     result = agent_resp
                 elif 'replan' in agent_resp and agent_resp['replan'] == True:
-                    # TODO: Do the re-planing, get the agent response, add to the current context and do a replaning, do not execute steps already executed
-                    pass
+                    # Replanning logic implementation
+                    replan_reason = agent_resp.get('message', 'An agent requested a replan without a specific reason.')
+                    print(f"\n--- Replanning Requested by {current_step.agent_name} ---")
+                    print(f"Reason: {replan_reason}")
+
+                    last_agent_response = replan_reason
+                    self.memory.append(last_agent_response)
+
+                    # Build a new prompt for the planner
+                    replanning_prompt_parts = [
+                        f"Original Task: {task_prompt}",
+                        "\n--- Execution History ---"
+                    ]
+                    if self.step_results:
+                        for step_num in sorted(self.step_results.keys()):
+                            original_step = self._find_step_by_number(plan, step_num)
+                            if original_step:
+                                result_str = json.dumps(self.step_results[step_num], indent=2) if isinstance(self.step_results[step_num], dict) else str(self.step_results[step_num])
+                                replanning_prompt_parts.append(f"Step {step_num} ({original_step.agent_name}): Succeeded.\nResult:{result_str}")
+                    else:
+                        replanning_prompt_parts.append("No steps have been successfully completed yet.")
+
+                    replanning_prompt_parts.append(f"\nStep {current_step.step_number} ({current_step.agent_name}): Failed and requested a replan.")
+                    replanning_prompt_parts.append(f"Reason: {replan_reason}")
+                    replanning_prompt_parts.append(
+                        "\n--- New Instructions ---\nCreate a new execution plan to achieve the original task. "
+                        "The plan should take into account the steps that have already succeeded. "
+                        "Do not include the previously completed steps in the new plan. "
+                        "The new plan should start from where the previous one left off."
+                        "Do NOT select the Archtect agent again."
+                    )
+                    new_plan_prompt = "\n".join(replanning_prompt_parts)
+                    self.memory.append(f"\n--- Replanning Prompt ---\n{new_plan_prompt}")
+
+                    # Generate the new plan segment
+                    new_plan_segment = self.planner.create_execution_plan(new_plan_prompt)
+
+                    if not new_plan_segment or not new_plan_segment.steps:
+                        print("Replanning failed to generate new steps. Aborting execution.")
+                        break
+
+                    # Stitch the new plan into the old one
+                    last_completed_step_num = max(self.step_results.keys()) if self.step_results else 0
+                    for step in new_plan_segment.steps:
+                        step.step_number += last_completed_step_num
+                        if step.depends_on:
+                            step.depends_on = [dep + last_completed_step_num for dep in step.depends_on]
+
+                    original_completed_steps = [s for s in plan.steps if s.step_number in self.step_results]
+                    plan.steps = original_completed_steps + new_plan_segment.steps
+                    plan.current_step = len(original_completed_steps)
+
+                    print("\n--- Plan has been updated ---")
+                    print(plan.get_plan_summary())
+                    continue
                 else:
                     result = agent_resp['message']
 
                 last_agent_response = result
                 self.memory.append(result)
-                
+
                 # Store the result
                 self.step_results[current_step.step_number] = f"\n{result}\n"
-                
+
                 result_str = json.dumps(result, indent=2) if isinstance(result, dict) else str(result)
-                
+
                 # Handle Evaluator agent output specially - print the formatted response
                 if current_step.agent_name.lower() == "evaluator":
                     print(f"\n{result_str}")  # Print the formatted evaluation response
                 else:
                     print(f"Step {current_step.step_number} completed. Result:\n{result_str}")
-                
+
                 # Move to next step
                 plan.advance_step()
-                
+
             except NoChangesStaged as e:
                 logger.error(e)
                 raise
@@ -117,9 +179,9 @@ class PlanExecutor:
             except Exception as e:
                 print(f"Error executing step {current_step.step_number}: {e}")
                 plan.advance_step()
-        
+
         return self.step_results.copy()
-    
+
     def get_step_results(self) -> Dict[int, Any]:
         """Get the current step results"""
         return self.step_results.copy()
@@ -307,7 +369,7 @@ class TaskFlow:
         self.completion_handler = TaskCompletionHandler(self.evaluator)
         
         # Initialize the plan executor
-        self.plan_executor = PlanExecutor(self.available_agents)
+        self.plan_executor = PlanExecutor(self.available_agents, self.planner)
         
         print("TaskFlow initialized.")
 
@@ -319,7 +381,7 @@ class TaskFlow:
         self.planner.update_available_agents(self.available_agents)
         
         # Update the plan executor with the new agents list
-        self.plan_executor = PlanExecutor(self.available_agents)
+        self.plan_executor = PlanExecutor(self.available_agents, self.planner)
         
         print(f"Agent '{agent.name}' added to TaskFlow.")
 

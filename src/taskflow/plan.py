@@ -137,6 +137,7 @@ Available Agents:
 
 Analyze the task and determine if it requires multiple steps or agents. If so, break it down into sequential steps.
 
+
 Please respond with a JSON object in this format, without markdown quotation marks:
 {{
     "requires_planning": true/false,
@@ -159,8 +160,11 @@ Guidelines:
 - Consider dependencies between steps (e.g., you need to generate code before you can commit it)
 - Be specific about what each agent should do and what input it needs
 - Do not add agents that do not contribute with the user goal
+- If the user did not asked for a thing, do not do it. Example: Only offer 'Commit the changes' if the user asks for it, do not try to predict
+- Only select a agent if it explictly says that can do the job
 
 Examples of tasks that need planning:
+- "Refactor the file 'x.py'"
 - "Propose a commit message" (1 step: Generate commit message)
 - "Generate a commit message and then commit the changes" (2 steps: generate message, then commit)
 - "Review the code, make changes, then commit" (3 steps: review, modify, commit)
