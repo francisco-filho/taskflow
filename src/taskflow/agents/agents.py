@@ -3,10 +3,17 @@ import tempfile
 import subprocess
 from typing import Optional, Dict, List, Any, Callable
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 
 from taskflow.util import printc
 from taskflow.llm import LLMClient
 from taskflow.exceptions import NoChangesStaged, ToolExecutionNotAuthorized
+
+from yaml import load, dump
+try:
+    from yaml import CLoader as Loader, CDumper as Dumper
+except ImportError:
+    from yaml import Loader, Dumper
 
 
 class Tool():
@@ -58,8 +65,10 @@ class Tool():
                 printc(f"Tool: [blue]{self.name}[/blue]")
                 print("Parameters:")
                 #printc(kwargs)
-                for param, value in kwargs.items():
-                    printc(f"{param}: [green]{value}[/green]")
+                #for param, value in kwargs.items():
+                #    printc(f"{param}: [green]{value}[/green]")
+                print(kwargs)
+                printc(f"[green]{dump(kwargs, sort_keys=False)}")
                 print("-"*80)
                 printc("[red]Do you approve the execution of the tool above?[/red] (y/n/e): ", end="")
                 
