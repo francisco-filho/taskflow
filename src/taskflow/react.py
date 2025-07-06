@@ -1,14 +1,15 @@
 import os
+import argparse
 import logging
 from typing import Dict, List
 
 from dotenv import load_dotenv
 from taskflow.agents import Tool
-from taskflow.llm import get_client
+from taskflow.llm import LLMClient, get_client
 from taskflow.exceptions import NoChangesStaged, ToolExecutionNotAuthorized
 from taskflow.tools import diff_tool, commit_tool, list_files_tool, read_file_tool, FinalAnswerTool
 from taskflow.tool.write_file import WriteFileTool
-from taskflow.util import printc
+from taskflow.util import DEFAULT_MODEL, printc
 
 write_file_tool = WriteFileTool()
 final_answer_tool = FinalAnswerTool()
@@ -53,14 +54,9 @@ User request:
 {user_prompt}
 """
 
-model_name = os.getenv("DEFAULT_MODEL", "gemini-2.5-flash-preview-05-20")
-print(f"Using model: {model_name}")
-
-# Initialize the client
-llm = get_client(model_name)
 
 class ReactAgent():
-    def __init__(self, available_tools, verbose: bool = False):
+    def __init__(self, client: LLMClient, available_tools, verbose: bool = False):
         self.available_tools = available_tools
         self.logger = logging.getLogger("taskflow")
         self.logger.setLevel(logging.DEBUG if verbose else logging.INFO)
@@ -71,9 +67,8 @@ class ReactAgent():
         max_iterations = 10
         iter = 0
         tools = self._get_tool_schemas()
-        final_resp = ""
 
-        while iter <= max_iterations: #and not p.endswith("||END||"):
+        while iter <= max_iterations:
             resp = llm.chat(p, tools=tools)
 
             if resp.function_call:
@@ -140,7 +135,19 @@ class ReactAgent():
         return schemas
 
 if __name__ == '__main__':
+    model_name = os.getenv("DEFAULT_MODEL", "gemini-2.5-flash-preview-05-20")
+    print(f"Using model: {model_name}")
+
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", "-m", type=str, default=model_name, help="Model to use")
+    args = parser.parse_args()
+
+    # Initialize the client
+    llm = get_client(args.model)
+
     agent = ReactAgent(
+        llm,
         available_tools={  
             'list_files_tool': Tool('list_files_tool', list_files_tool, needs_approval=False),
             'read_file_tool': Tool('read_file_tool', read_file_tool, needs_approval=False),
