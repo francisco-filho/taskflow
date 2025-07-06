@@ -363,6 +363,55 @@ class ListFilesTool():
             }
         }
 
+class FinalAnswerTool:
+    """
+    A tool class that shows the final answer to the user.
+    This tool is used to present the final result or conclusion of a task.
+    """
+    
+    def __call__(self, answer: str) -> str:
+        """
+        Presents the final answer to the user.
+
+        Parameters:
+            answer: The final answer or result to show to the user.
+
+        Returns:
+            A formatted string containing the final answer.
+        """
+        if not answer or not answer.strip():
+            return "Error: Answer cannot be empty."
+        
+        # Format the answer with a clear header
+        formatted_answer = f"=== FINAL ANSWER ===\n{answer.strip()}\n===================="
+        
+        # Log the final answer for debugging purposes
+        logger.info(f"Final answer provided: {answer[:100]}...")
+        
+        return formatted_answer
+    
+    def get_schema(self) -> dict:
+        """
+        Returns the function schema for this tool.
+        
+        Returns:
+            Dictionary containing the tool schema for function calling.
+        """
+        return {
+            "name": "final_answer_tool",
+            "description": "Shows the final answer to the user. Use this tool to present the final result or conclusion of a task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "answer": {
+                        "type": "string",
+                        "description": "The final answer or result to show to the user"
+                    }
+                },
+                "required": ["answer"]
+            }
+        }
+
 
 # For backward compatibility, you can create instances
 diff_tool = DiffTool()

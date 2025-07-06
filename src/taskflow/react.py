@@ -6,10 +6,12 @@ from dotenv import load_dotenv
 from taskflow.agents import Tool
 from taskflow.llm import get_client
 from taskflow.exceptions import NoChangesStaged, ToolExecutionNotAuthorized
-from taskflow.tools import diff_tool, commit_tool, list_files_tool, read_file_tool
+from taskflow.tools import diff_tool, commit_tool, list_files_tool, read_file_tool, FinalAnswerTool
 from taskflow.tool.write_file import WriteFileTool
+from taskflow.util import printc
 
 write_file_tool = WriteFileTool()
+final_answer_tool = FinalAnswerTool()
 
 logging.getLogger("google_genai.models").setLevel(logging.ERROR)
 
@@ -20,7 +22,7 @@ You work in a loop in the following way, you analise the user request, them you 
 and choose the action you should take. You will have tools at your disposal to get information,
 interact with the enviroment, and execute actions that you cannot do as a llm.
 
-Your loop will be like this (until you detect the Final Answer, that you will mark with ||END||):
+Your loop will be like this (until you detect the Final Answer:
 - Thougth is your thinking process
 - Action is something executed by a tool or by yoursel when possible
 - Observation is the result of the action
@@ -42,8 +44,7 @@ Action: use tool write_file({{path/to/file/animal.py}})
 Observation: file {{file}} saved with success
 
 Thougth: I fullfilled the user request. Do not need to call tools.
-Final Answer: File {{file}} saved with success
-||END||
+Action: call tool to deliver the final answer
 
 End of example.
 
@@ -72,15 +73,19 @@ class ReactAgent():
         tools = self._get_tool_schemas()
         final_resp = ""
 
-        while iter <= max_iterations and not p.endswith("||END||"):
+        while iter <= max_iterations: #and not p.endswith("||END||"):
             resp = llm.chat(p, tools=tools)
 
             if resp.function_call:
                 action = f"\nAction: {str(resp.function_call)}" 
                 self.logger.debug(action)
                 p = p + action 
-                diff_result = self._execute_function_call(resp.function_call)
-                observation = f"\nObservation: {str(diff_result)}"
+                fn_result = self._execute_function_call(resp.function_call)
+
+                if resp.function_call.name == "final_answer_tool":
+                    printc(f"[blue]{fn_result}")
+                    break
+                observation = f"\nObservation: {str(fn_result)}"
                 self.logger.debug(observation)
                 p = p + observation 
             else:
@@ -90,7 +95,7 @@ class ReactAgent():
                 final_resp = thougth
 
             iter = iter + 1
-        logging.info(final_resp)
+        #logging.info(final_resp)
             
 
     def _execute_function_call(self, function_call):
@@ -142,6 +147,7 @@ if __name__ == '__main__':
             'diff_tool': Tool('diff_tool', diff_tool, needs_approval=False), 
             'write_file_tool': Tool('write_file_tool', write_file_tool, needs_approval=True), 
             'commit_tool': Tool('commit_tool', commit_tool, needs_approval=True),
+            'final_answer_tool': Tool('final_answer_tool', final_answer_tool, needs_approval=False),
         },
         verbose=False,
     )
