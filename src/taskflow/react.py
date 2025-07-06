@@ -7,10 +7,12 @@ from dotenv import load_dotenv
 from taskflow.agents import Tool
 from taskflow.llm import LLMClient, get_client
 from taskflow.exceptions import NoChangesStaged, ToolExecutionNotAuthorized
-from taskflow.tools import diff_tool, commit_tool, list_files_tool, read_file_tool, FinalAnswerTool
+from taskflow.tool.commit import CommitTool
+from taskflow.tools import diff_tool, list_files_tool, read_file_tool, FinalAnswerTool
 from taskflow.tool.write_file import WriteFileTool
 from taskflow.util import DEFAULT_MODEL, printc
 
+commit_tool = CommitTool()
 write_file_tool = WriteFileTool()
 final_answer_tool = FinalAnswerTool()
 
@@ -136,14 +138,12 @@ class ReactAgent():
 
 if __name__ == '__main__':
     model_name = os.getenv("DEFAULT_MODEL", "gemini-2.5-flash-preview-05-20")
-    print(f"Using model: {model_name}")
-
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", "-m", type=str, default=model_name, help="Model to use")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
     args = parser.parse_args()
 
-    # Initialize the client
     llm = get_client(args.model)
 
     agent = ReactAgent(
@@ -156,22 +156,11 @@ if __name__ == '__main__':
             'commit_tool': Tool('commit_tool', commit_tool, needs_approval=True),
             'final_answer_tool': Tool('final_answer_tool', final_answer_tool, needs_approval=False),
         },
-        verbose=False,
+        verbose=args.verbose,
     )
 
     #agent.run("""update models.py renaming the Request() class to UserRequest()""")
     agent.run("""Generate a commit message of the staged changes in the current directory.
-    Use this format to the commit message:
-MAIN TOPIC OF THE CHANGES
-- DETAIL1
-- OTHER DETAILS IF NECESSARY
-
-Example:
-Create upload file
-- Add method upload()
-- Catch erros and respond to them
 
 When you get the message them DO commit the changes in the repo
     """)
-
-
