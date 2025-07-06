@@ -11,30 +11,30 @@ class CommitTool:
     A tool class for committing staged changes with a commit message.
     """
     
-    def __call__(self, project_dir: str, message: CommitMessage | dict) -> str:
+    def __call__(self, project_dir: str, commit_message: CommitMessage | dict) -> str:
         """
         Commits staged changes with the provided commit message.
 
         Parameters:
             project_dir: Directory of the project with a git repo.
-            message: CommitMessage object containing the commit message and details.
+            commit_message: CommitMessage object containing the commit message and details.
 
         Returns:
             A string indicating success or error message.
         """
         try:
-            if isinstance(message, dict):
-                message = CommitMessage(**message)
+            if isinstance(commit_message, dict):
+                message = CommitMessage(**commit_message)
             repo = git.Repo(project_dir)
             
             # Build the full commit message with details
-            full_message = message.message
-            if message.details:
-                full_message += "\n"
-                for detail in message.details:
-                    full_message += f"- {detail}\n"
+            full_message = message.subject
+            if message.body:
+                #full_message += "\n"
+                #for detail in message.details:
+                #    full_message += f"- {detail}\n"
                 # Remove the trailing newline
-                full_message = full_message.rstrip()
+                full_message = f"{full_message}\n\n{message.body}"
             
             commit = repo.index.commit(full_message)
         
@@ -65,23 +65,22 @@ class CommitTool:
                         "type": "string",
                         "description": "Directory of the project with a git repo"
                     },
-                    "message": {
+                    "commit_message": {
                         "type": "object",
-                        "description": "CommitMessage object containing the commit message and details",
+                        "description": "CommitMessage object containing the subject and description of the chages",
                         "properties": {
-                            "message": {
+                            "subject": {
                                 "type": "string",
-                                "description": "The main commit message"
+                                "description": "The subject of the commit message"
                             },
-                            "details": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "List of detailed changes or notes"
+                            "body": {
+                                "type": "string",
+                                "description": "The body of the message containing the description and notes of the changes made by the user"
                             }
                         },
-                        "required": ["message"]
+                        "required": ["subject"]
                     }
                 },
-                "required": ["project_dir", "message"]
+                "required": ["project_dir", "commit_message"]
             }
         }

@@ -28,8 +28,8 @@ class PlanningResponse(BaseModel):
 
 # Commiter agent
 class CommitMessage(BaseModel):
-    message: str
-    details: list[str]
+    subject: str
+    body: str
 
 class UserNotApprovedException(Exception):
     pass
