@@ -47,12 +47,10 @@ class LLMClient(ABC):
         pass
 
     def show_usage(self, response: ChatResponse):
-        logger.info("-"*30)
         d = response.model_dump()
         del d['content']
         del d['function_call']
         logger.info(d)
-        logger.info("-"*30)
 
 class GeminiClient(LLMClient):
     """
